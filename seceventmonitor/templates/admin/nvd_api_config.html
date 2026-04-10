@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+    <div>
+        <h1>NVD API Key</h1>
+    </div>
+</section>
+
+<section class="panel narrow-panel">
+    <div class="panel-header">
+        <h2>接口配置</h2>
+    </div>
+    <form method="post" action="/api-config/nvd" class="form-stack">
+        <label class="field">
+            <span>NVD API Key</span>
+            <input type="password" name="nvd_api_key" value="{{ settings_map.nvd_api_key or '' }}" placeholder="请输入 NVD API Key">
+        </label>
+        <button type="submit" class="btn btn-primary">保存配置</button>
+    </form>
+</section>
+{% endblock %}

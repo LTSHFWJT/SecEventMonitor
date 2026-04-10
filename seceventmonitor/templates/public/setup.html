@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="public-header">
+    <h1>初始化管理员账号</h1>
+    <p>当前系统仅支持一个管理员账号。初始化完成后将直接进入后台。</p>
+</div>
+{% if error %}
+    <div class="flash flash-error">{{ error }}</div>
+{% endif %}
+<form method="post" action="/setup" class="form-stack">
+    <label class="field">
+        <span>管理员账号</span>
+        <input type="text" name="username" value="{{ form_data.username if form_data else '' }}" placeholder="例如：admin" required>
+    </label>
+    <label class="field">
+        <span>管理员密码</span>
+        <input type="password" name="password" placeholder="至少 6 位" required>
+    </label>
+    <label class="field">
+        <span>确认密码</span>
+        <input type="password" name="confirm_password" placeholder="再次输入密码" required>
+    </label>
+    <button type="submit" class="btn btn-primary btn-full">完成初始化</button>
+</form>
+{% endblock %}

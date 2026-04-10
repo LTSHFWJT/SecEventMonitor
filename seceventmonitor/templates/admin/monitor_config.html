@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+    <h1>监控配置</h1>
+</section>
+
+<div class="layout-main">
+    <section class="panel">
+        <div class="panel-header">
+            <h2>采集配置</h2>
+        </div>
+        <form method="post" action="/monitor-config/settings" class="form-stack">
+            <div class="modal-grid">
+                <label class="field">
+                    <span>漏洞同步周期（分钟）</span>
+                    <input type="number" name="monitor_interval_minutes" value="{{ settings_map.monitor_interval_minutes or '60' }}" min="1">
+                </label>
+                <label class="field">
+                    <span>Github同步周期（分钟）</span>
+                    <input type="number" name="github_monitor_interval_minutes" value="{{ settings_map.github_monitor_interval_minutes or '60' }}" min="1">
+                </label>
+            </div>
+            <div class="inline-actions">
+                <button type="submit" class="btn btn-primary">保存配置</button>
+            </div>
+        </form>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header split-header">
+            <h2>后台同步状态</h2>
+            <div class="panel-meta">运行中 {{ active_jobs|length }} 项</div>
+        </div>
+        <div class="stack-list">
+            {% for item in active_jobs %}
+                <article class="status-card">
+                    <div class="status-head">
+                        <strong>{{ item.job_name }}</strong>
+                        <span>{{ item.status }}</span>
+                    </div>
+                    <p>{{ item.message }}</p>
+                    <small>更新时间：{{ item.updated_at or item.created_at or '-' }}</small>
+                </article>
+            {% else %}
+                <div class="empty-state">当前没有后台同步任务。</div>
+            {% endfor %}
+        </div>
+        <form method="post" action="/monitor/sync" class="sync-form-row top-gap">
+            <div class="field">
+                <span>同步来源</span>
+                <details class="multi-dropdown sync-source-dropdown" data-multi-dropdown data-all-label="全部同步">
+                    <summary class="multi-dropdown-summary">
+                        <span class="multi-dropdown-text" data-multi-summary>全部同步</span>
+                    </summary>
+                    <div class="multi-dropdown-panel">
+                        <div class="multi-dropdown-actions">
+                            <button type="button" class="multi-dropdown-action" data-multi-action="select-all">全选</button>
+                            <button type="button" class="multi-dropdown-action" data-multi-action="clear">清空</button>
+                        </div>
+                        <div class="multi-dropdown-options">
+                            {% for item in sync_source_options %}
+                                <label class="check-option">
+                                    <input type="checkbox" name="source" value="{{ item.value }}" data-multi-option>
+                                    <span>{{ item.label }}</span>
+                                </label>
+                            {% endfor %}
+                        </div>
+                        <div class="multi-dropdown-tip">未选择时表示全部同步</div>
+                    </div>
+                </details>
+            </div>
+            <button type="submit" class="btn btn-primary">手动同步</button>
+        </form>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <h2>同步日志</h2>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>任务</th>
+                        <th>状态</th>
+                        <th>消息</th>
+                        <th>时间</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for item in sync_job_page["items"] %}
+                    <tr>
+                        <td>{{ item.job_name }}</td>
+                        <td>{{ item.status }}</td>
+                        <td class="text-break">{{ item.message }}</td>
+                        <td>{{ item.created_at or '-' }}</td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="4" class="empty-cell">暂无同步日志</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="pagination-bar">
+            <form method="get" action="/monitor-config" class="page-size-form">
+                <input type="hidden" name="log_page" value="1">
+                <label class="page-size-label">
+                    <span>每页条数</span>
+                    <select name="log_page_size" onchange="this.form.submit()">
+                        {% for size in [10, 15, 20, 25, 50] %}
+                            <option value="{{ size }}" {% if sync_job_page["page_size"] == size %}selected{% endif %}>{{ size }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </form>
+
+            {% if sync_job_page["total_pages"] > 1 %}
+                <div class="pagination">
+                    {% if sync_job_page["has_prev"] %}
+                        <a href="/monitor-config?{{ sync_pagination_query }}&log_page=1">首页</a>
+                        <a href="/monitor-config?{{ sync_pagination_query }}&log_page={{ sync_job_page['page'] - 1 }}">上一页</a>
+                    {% endif %}
+                    {% for item in sync_pagination_pages %}
+                        {% if item == '...' %}
+                            <span class="ellipsis">...</span>
+                        {% elif item == sync_job_page["page"] %}
+                            <span class="current">{{ item }}</span>
+                        {% else %}
+                            <a href="/monitor-config?{{ sync_pagination_query }}&log_page={{ item }}">{{ item }}</a>
+                        {% endif %}
+                    {% endfor %}
+                    {% if sync_job_page["has_next"] %}
+                        <a href="/monitor-config?{{ sync_pagination_query }}&log_page={{ sync_job_page['page'] + 1 }}">下一页</a>
+                        <a href="/monitor-config?{{ sync_pagination_query }}&log_page={{ sync_job_page['total_pages'] }}">末页</a>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+    </section>
+</div>
+<script>
+function initializeMultiDropdowns(root = document) {
+    root.querySelectorAll('[data-multi-dropdown]').forEach(function(dropdown) {
+        if (dropdown.dataset.bound === 'true') {
+            return;
+        }
+        dropdown.dataset.bound = 'true';
+
+        const summary = dropdown.querySelector('[data-multi-summary]');
+        const options = Array.from(dropdown.querySelectorAll('[data-multi-option]'));
+        const allLabel = dropdown.dataset.allLabel || '全部';
+
+        function refreshSummary() {
+            if (!summary) return;
+            const checked = options.filter(function(option) { return option.checked; });
+            if (!checked.length) {
+                summary.textContent = allLabel;
+                return;
+            }
+            const labels = checked.map(function(option) {
+                const textNode = option.parentElement ? option.parentElement.querySelector('span') : null;
+                return textNode ? textNode.textContent.trim() : option.value;
+            });
+            summary.textContent = labels.length <= 2 ? labels.join('、') : '已选 ' + labels.length + ' 项';
+        }
+
+        options.forEach(function(option) {
+            option.addEventListener('change', refreshSummary);
+        });
+
+        dropdown.querySelectorAll('[data-multi-action]').forEach(function(button) {
+            button.addEventListener('click', function(event) {
+                event.preventDefault();
+                const action = button.dataset.multiAction;
+                options.forEach(function(option) {
+                    option.checked = action === 'select-all';
+                });
+                refreshSummary();
+            });
+        });
+
+        refreshSummary();
+    });
+}
+
+document.addEventListener('click', function(event) {
+    document.querySelectorAll('[data-multi-dropdown][open]').forEach(function(dropdown) {
+        if (!dropdown.contains(event.target)) {
+            dropdown.removeAttribute('open');
+        }
+    });
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    initializeMultiDropdowns();
+});
+</script>
+{% endblock %}

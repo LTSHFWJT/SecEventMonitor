@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+    <div>
+        <h1>概览</h1>
+    </div>
+</section>
+
+<section class="stats-grid">
+    <article class="stat-card">
+        <div class="stat-label">漏洞总数</div>
+        <div class="stat-value">{{ overview.vulnerability_count }}</div>
+    </article>
+    <article class="stat-card">
+        <div class="stat-label">近 24 小时新增</div>
+        <div class="stat-value">{{ overview.new_event_count_24h }}</div>
+    </article>
+    <article class="stat-card">
+        <div class="stat-label">近 24 小时更新</div>
+        <div class="stat-value">{{ overview.updated_event_count_24h }}</div>
+    </article>
+    <article class="stat-card">
+        <div class="stat-label">启用推送配置</div>
+        <div class="stat-value">{{ overview.enabled_push_config_count }}</div>
+    </article>
+    <article class="stat-card">
+        <div class="stat-label">启用翻译 API</div>
+        <div class="stat-value">{{ overview.enabled_translation_api_count }}</div>
+    </article>
+    <article class="stat-card">
+        <div class="stat-label">CISA KEV 索引 CVE</div>
+        <div class="stat-value">{{ overview.kev_catalog_count }}</div>
+    </article>
+    <article class="stat-card">
+        <div class="stat-label">运行中同步任务</div>
+        <div class="stat-value">{{ overview.active_sync_job_count }}</div>
+    </article>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <h2>来源概览</h2>
+    </div>
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>来源</th>
+                    <th>漏洞数</th>
+                    <th>最近发现时间</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for item in overview.source_summaries %}
+                <tr>
+                    <td>{{ item.source }}</td>
+                    <td>{{ item.count }}</td>
+                    <td>{{ item.latest_seen_at or '-' }}</td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="3" class="empty-cell">暂无来源数据</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <h2>最近同步任务</h2>
+    </div>
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>任务</th>
+                    <th>状态</th>
+                    <th>消息</th>
+                    <th>时间</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for item in overview.latest_sync_jobs %}
+                <tr>
+                    <td>{{ item.job_name }}</td>
+                    <td>{{ item.status }}</td>
+                    <td class="text-break">{{ item.message }}</td>
+                    <td>{{ item.created_at or '-' }}</td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="4" class="empty-cell">暂无数据</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

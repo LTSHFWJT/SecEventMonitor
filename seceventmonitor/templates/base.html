@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - {{ app_name }}</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="{% if admin %}admin-body{% else %}public-body{% endif %}">
+{% if admin %}
+    <div class="admin-shell">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-mark">SE</div>
+                <div>
+                    <div class="brand-title">{{ app_name }}</div>
+                    <div class="brand-subtitle">安全监控后台</div>
+                </div>
+            </div>
+            <nav class="nav-list">
+                <a href="/overview" class="nav-item {% if current_nav == 'overview' %}active{% endif %}">概览</a>
+                <a href="/monitor" class="nav-item {% if current_nav == 'monitor' %}active{% endif %}">漏洞列表</a>
+                <details
+                    class="nav-group"
+                    data-nav-group="github_monitor"
+                    data-group-active="{% if current_nav in ['redteam_tools'] %}true{% else %}false{% endif %}"
+                    {% if current_nav in ['redteam_tools'] %}open{% endif %}
+                >
+                    <summary class="nav-item nav-item-parent {% if current_nav in ['redteam_tools'] %}active{% endif %}">
+                        <span>Github监控</span>
+                    </summary>
+                    <div class="nav-sublist">
+                        <a href="/redteam-github/tools" class="nav-subitem {% if current_nav == 'redteam_tools' %}active{% endif %}">红队工具</a>
+                    </div>
+                </details>
+                <a href="/monitor-config" class="nav-item {% if current_nav == 'monitor_config' %}active{% endif %}">监控配置</a>
+                <details
+                    class="nav-group"
+                    data-nav-group="api_config"
+                    data-group-active="{% if current_nav in ['api_config_nvd', 'api_config_github', 'push', 'translation_api'] %}true{% else %}false{% endif %}"
+                    {% if current_nav in ['api_config_nvd', 'api_config_github', 'push', 'translation_api'] %}open{% endif %}
+                >
+                    <summary class="nav-item nav-item-parent {% if current_nav in ['api_config_nvd', 'api_config_github', 'push', 'translation_api'] %}active{% endif %}">
+                        <span>API配置</span>
+                    </summary>
+                    <div class="nav-sublist">
+                        <a href="/api-config/nvd" class="nav-subitem {% if current_nav == 'api_config_nvd' %}active{% endif %}">NVD API Key</a>
+                        <a href="/api-config/github" class="nav-subitem {% if current_nav == 'api_config_github' %}active{% endif %}">GitHub API</a>
+                        <a href="/push" class="nav-subitem {% if current_nav == 'push' %}active{% endif %}">推送配置</a>
+                        <a href="/translation-api" class="nav-subitem {% if current_nav == 'translation_api' %}active{% endif %}">翻译API</a>
+                    </div>
+                </details>
+                <a href="/settings" class="nav-item {% if current_nav == 'settings' %}active{% endif %}">系统设置</a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="admin-card">
+                    <div class="admin-label">管理员</div>
+                    <div class="admin-name">{{ admin.username }}</div>
+                </div>
+                <form method="post" action="/logout">
+                    <button type="submit" class="btn btn-secondary btn-full">退出登录</button>
+                </form>
+            </div>
+        </aside>
+        <main class="main-content">
+{% else %}
+    <main class="public-shell">
+        <section class="public-card">
+{% endif %}
+
+{% if flash %}
+    <div class="flash flash-{{ flash.level }}">{{ flash.message }}</div>
+{% endif %}
+
+{% block content %}{% endblock %}
+
+{% if admin %}
+        </main>
+    </div>
+{% else %}
+        </section>
+    </main>
+{% endif %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('[data-nav-group]').forEach(function(group) {
+        const storageKey = 'sidebar-nav-group:' + group.dataset.navGroup;
+        const isActive = group.dataset.groupActive === 'true';
+
+        if (isActive) {
+            group.open = true;
+        } else {
+            try {
+                const savedState = localStorage.getItem(storageKey);
+                if (savedState === 'true') {
+                    group.open = true;
+                } else if (savedState === 'false') {
+                    group.open = false;
+                }
+            } catch (error) {
+            }
+        }
+
+        group.addEventListener('toggle', function() {
+            try {
+                localStorage.setItem(storageKey, String(group.open));
+            } catch (error) {
+            }
+        });
+    });
+});
+</script>
+</body>
+</html>

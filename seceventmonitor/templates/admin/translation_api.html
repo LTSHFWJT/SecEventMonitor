@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+    <div>
+        <h1>翻译API</h1>
+    </div>
+    <button type="button" class="btn btn-primary" onclick="openTranslationApiModal()">新增配置</button>
+</section>
+
+<section class="panel">
+    <div class="table-wrap">
+        <table class="data-table push-config-table translation-api-table">
+            <thead>
+                <tr>
+                    <th>APPID</th>
+                    <th>API-KEY</th>
+                    <th>启用状态</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for item in translation_page['items'] %}
+                <tr>
+                    <td class="cell-nowrap">{{ item.app_id }}</td>
+                    <td class="cell-nowrap">{{ item.api_key_masked }}</td>
+                    <td class="cell-nowrap">{{ '已启用' if item.enabled else '未启用' }}</td>
+                    <td class="cell-nowrap">
+                        <div class="inline-actions table-actions">
+                            <button
+                                type="button"
+                                class="btn btn-secondary btn-small"
+                                data-config="{{ item|tojson|forceescape }}"
+                                onclick="openTranslationApiModalFromButton(this)"
+                            >编辑</button>
+                            <form method="post" action="/translation-api/configs/{{ item.id }}/toggle">
+                                <button type="submit" class="btn btn-secondary btn-small">{{ '停用' if item.enabled else '启用' }}</button>
+                            </form>
+                            <form method="post" action="/translation-api/configs/{{ item.id }}/delete" onsubmit="return confirm('确认删除该翻译 API 配置？');">
+                                <button type="submit" class="btn btn-danger btn-small">删除</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="4" class="empty-cell">当前还没有翻译 API 配置。</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="pagination-bar">
+        <form method="get" action="/translation-api" class="page-size-form">
+            <input type="hidden" name="page" value="1">
+            <label class="page-size-label">
+                <span>每页条数</span>
+                <select name="page_size" onchange="this.form.submit()">
+                    {% for size in [10, 15, 20, 25, 50] %}
+                        <option value="{{ size }}" {% if translation_page.page_size == size %}selected{% endif %}>{{ size }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </form>
+
+        {% if translation_page.total_pages > 1 %}
+            <div class="pagination">
+                {% if translation_page.has_prev %}
+                    <a href="/translation-api?{{ pagination_query }}&page=1">首页</a>
+                    <a href="/translation-api?{{ pagination_query }}&page={{ translation_page.page - 1 }}">上一页</a>
+                {% endif %}
+                {% for item in pagination_pages %}
+                    {% if item == '...' %}
+                        <span class="ellipsis">...</span>
+                    {% elif item == translation_page.page %}
+                        <span class="current">{{ item }}</span>
+                    {% else %}
+                        <a href="/translation-api?{{ pagination_query }}&page={{ item }}">{{ item }}</a>
+                    {% endif %}
+                {% endfor %}
+                {% if translation_page.has_next %}
+                    <a href="/translation-api?{{ pagination_query }}&page={{ translation_page.page + 1 }}">下一页</a>
+                    <a href="/translation-api?{{ pagination_query }}&page={{ translation_page.total_pages }}">末页</a>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+</section>
+
+<dialog id="translation-api-modal" class="modal-dialog">
+    <form method="post" action="/translation-api/configs" class="form-stack" id="translation-api-form">
+        <section class="modal-section">
+            <div class="panel-header">
+                <h2 id="translation-api-modal-title">新增翻译 API 配置</h2>
+            </div>
+            <input type="hidden" name="config_id" id="translation-api-id" value="">
+            <div class="modal-grid">
+                <label class="field field-span-2">
+                    <span>APPID</span>
+                    <input type="text" name="app_id" placeholder="请输入 APPID" required>
+                </label>
+                <label class="field field-span-2">
+                    <span>API-KEY</span>
+                    <input type="text" name="api_key" id="translation-api-key" placeholder="请输入 API-KEY" required>
+                </label>
+                <div class="hint-text field-span-2" id="translation-api-key-hint" hidden>编辑时如果不需要更换 API-KEY，可以留空并保留原值。</div>
+                <div class="checkbox-action-row field-span-2">
+                    <label class="checkbox-field">
+                        <input type="checkbox" name="enabled" checked>
+                        <span>保存后立即启用</span>
+                    </label>
+                </div>
+            </div>
+        </section>
+
+        <div class="inline-actions modal-actions">
+            <button type="button" class="btn btn-secondary" onclick="closeTranslationApiModal()">取消</button>
+            <button type="submit" class="btn btn-primary">保存配置</button>
+        </div>
+    </form>
+</dialog>
+
+<script>
+function parseTranslationApiPayload(button) {
+    if (!button || !button.dataset.config) return null;
+    try {
+        return JSON.parse(button.dataset.config);
+    } catch (error) {
+        return null;
+    }
+}
+
+function openTranslationApiModal(config) {
+    const dialog = document.getElementById('translation-api-modal');
+    const form = document.getElementById('translation-api-form');
+    const title = document.getElementById('translation-api-modal-title');
+    const idField = document.getElementById('translation-api-id');
+    const appIdField = form.querySelector('[name="app_id"]');
+    const apiKeyField = document.getElementById('translation-api-key');
+    const enabledField = form.querySelector('[name="enabled"]');
+    const hint = document.getElementById('translation-api-key-hint');
+
+    if (config && config.id) {
+        title.textContent = '编辑翻译 API 配置';
+        form.action = '/translation-api/configs/' + config.id + '/update';
+        idField.value = config.id;
+        appIdField.value = config.app_id || '';
+        apiKeyField.value = config.api_key || '';
+        apiKeyField.placeholder = '留空则保留当前 API-KEY';
+        apiKeyField.required = false;
+        enabledField.checked = !!config.enabled;
+        hint.hidden = false;
+    } else {
+        title.textContent = '新增翻译 API 配置';
+        form.action = '/translation-api/configs';
+        idField.value = '';
+        appIdField.value = '';
+        apiKeyField.value = '';
+        apiKeyField.placeholder = '请输入 API-KEY';
+        apiKeyField.required = true;
+        enabledField.checked = true;
+        hint.hidden = true;
+    }
+    dialog.showModal();
+}
+
+function openTranslationApiModalFromButton(button) {
+    openTranslationApiModal(parseTranslationApiPayload(button));
+}
+
+function closeTranslationApiModal() {
+    const dialog = document.getElementById('translation-api-modal');
+    if (dialog.open) {
+        dialog.close();
+    }
+}
+
+document.getElementById('translation-api-modal')?.addEventListener('click', function(event) {
+    const rect = this.getBoundingClientRect();
+    const inside =
+        rect.top <= event.clientY &&
+        event.clientY <= rect.top + rect.height &&
+        rect.left <= event.clientX &&
+        event.clientX <= rect.left + rect.width;
+    if (!inside) {
+        closeTranslationApiModal();
+    }
+});
+</script>
+{% endblock %}

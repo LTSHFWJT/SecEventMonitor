@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+    <div>
+        <h1>{{ channel.name }}</h1>
+        <p>维护 webhook 与签名信息。</p>
+    </div>
+    <a href="/push" class="btn btn-secondary">返回推送配置</a>
+</section>
+
+<section class="panel narrow-panel">
+    <div class="panel-header">
+        <h2>通道配置</h2>
+    </div>
+    <form method="post" action="/push/{{ channel.channel_type }}" class="form-stack">
+        <label class="checkbox-field">
+            <input type="checkbox" name="enabled" {% if channel.enabled %}checked{% endif %}>
+            <span>启用该推送通道</span>
+        </label>
+        <label class="field">
+            <span>Webhook URL</span>
+            <input type="text" name="webhook_url" value="{{ channel.webhook_url or '' }}" placeholder="请输入 webhook">
+        </label>
+        <label class="field">
+            <span>签名 Secret</span>
+            <input type="password" name="secret" placeholder="留空表示不修改">
+        </label>
+        <div class="hint-text">当前 Secret {% if channel.secret_configured %}已配置{% else %}未配置{% endif %}。</div>
+        <div class="inline-actions">
+            <button type="submit" class="btn btn-primary">保存配置</button>
+        </div>
+    </form>
+    <form method="post" action="/push/{{ channel.channel_type }}/test" class="top-gap">
+        <button type="submit" class="btn btn-secondary">测试发送</button>
+    </form>
+</section>
+{% endblock %}

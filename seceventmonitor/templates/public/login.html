@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="public-header">
+    <h1>登录 {{ app_name }}</h1>
+    <p>单管理员后台，用于查看漏洞列表、配置推送与维护系统参数。</p>
+</div>
+{% if error %}
+    <div class="flash flash-error">{{ error }}</div>
+{% endif %}
+<form method="post" action="/login" class="form-stack">
+    <label class="field">
+        <span>管理员账号</span>
+        <input type="text" name="username" value="{{ form_data.username if form_data else '' }}" placeholder="请输入管理员账号" required>
+    </label>
+    <label class="field">
+        <span>管理员密码</span>
+        <input type="password" name="password" placeholder="请输入密码" required>
+    </label>
+    <button type="submit" class="btn btn-primary btn-full">登录</button>
+</form>
+{% endblock %}

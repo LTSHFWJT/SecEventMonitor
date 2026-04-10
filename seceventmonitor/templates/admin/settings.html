@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+    <div>
+        <h1>系统设置</h1>
+    </div>
+</section>
+
+<section class="panel narrow-panel">
+    <div class="panel-header">
+        <h2>运行参数</h2>
+    </div>
+    <form method="post" action="/settings" class="form-stack">
+        <label class="field">
+            <span>时区</span>
+            <input type="text" name="timezone" value="{{ settings_map.timezone or 'Asia/Shanghai' }}">
+        </label>
+        <label class="field">
+            <span>HTTP/HTTPS 代理</span>
+            <input type="text" name="http_proxy" value="{{ settings_map.http_proxy or '' }}" placeholder="例如：http://127.0.0.1:7890">
+        </label>
+        <button type="submit" class="btn btn-primary">保存设置</button>
+    </form>
+</section>
+
+<section class="panel narrow-panel">
+    <div class="panel-header">
+        <h2>账号密码修改</h2>
+    </div>
+    <form method="post" action="/settings/account/username" class="form-stack">
+        <label class="field">
+            <span>管理员账号</span>
+            <input type="text" name="username" value="{{ admin.username if admin else '' }}" required>
+        </label>
+        <label class="field">
+            <span>当前密码</span>
+            <input type="password" name="current_password" placeholder="请输入当前密码以确认修改" required>
+        </label>
+        <button type="submit" class="btn btn-primary">保存账号</button>
+    </form>
+
+    <form method="post" action="/settings/account/password" class="form-stack top-gap">
+        <label class="field">
+            <span>当前密码</span>
+            <input type="password" name="current_password" placeholder="请输入当前密码" required>
+        </label>
+        <label class="field">
+            <span>新密码</span>
+            <input type="password" name="new_password" placeholder="请输入新密码" required>
+        </label>
+        <label class="field">
+            <span>确认新密码</span>
+            <input type="password" name="confirm_password" placeholder="再次输入新密码" required>
+        </label>
+        <button type="submit" class="btn btn-primary">保存密码</button>
+    </form>
+</section>
+{% endblock %}

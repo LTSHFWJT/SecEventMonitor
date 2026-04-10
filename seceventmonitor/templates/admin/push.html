@@ -1,0 +1,650 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+    <div>
+        <h1>推送配置</h1>
+    </div>
+    <button type="button" class="btn btn-primary" onclick="openPushConfigModal()">新增推送配置</button>
+</section>
+
+<section class="panel">
+    <div class="table-wrap">
+        <table class="data-table push-config-table">
+            <thead>
+                <tr>
+                    <th>规则名称</th>
+                    <th>通道</th>
+                    <th>规则数</th>
+                    <th>启用状态</th>
+                    <th>更新时间</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for item in push_config_page['items'] %}
+                <tr>
+                    <td class="cell-nowrap">{{ item.name }}</td>
+                    <td class="cell-nowrap">{{ item.channel_name }}</td>
+                    <td class="cell-nowrap">{{ item.rule_count }}</td>
+                    <td class="cell-nowrap">{{ '已启用' if item.enabled else '未启用' }}</td>
+                    <td class="cell-nowrap">{{ item.updated_at[:19].replace('T', ' ') if item.updated_at else '-' }}</td>
+                    <td class="cell-nowrap">
+                        <div class="inline-actions table-actions">
+                            <button
+                                type="button"
+                                class="btn btn-secondary btn-small"
+                                data-config="{{ item|tojson|forceescape }}"
+                                onclick="openPushConfigModalFromButton(this)"
+                            >编辑</button>
+                            <form method="post" action="/push/configs/{{ item.id }}/test">
+                                <button type="submit" class="btn btn-secondary btn-small">测试</button>
+                            </form>
+                            <form method="post" action="/push/configs/{{ item.id }}/toggle">
+                                <button type="submit" class="btn btn-secondary btn-small">{{ '停用' if item.enabled else '启用' }}</button>
+                            </form>
+                            <form method="post" action="/push/configs/{{ item.id }}/delete" onsubmit="return confirm('确认删除该推送配置？');">
+                                <button type="submit" class="btn btn-danger btn-small">删除</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="6" class="empty-cell">当前还没有推送配置。</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="pagination-bar">
+        <form method="get" action="/push" class="page-size-form">
+            <input type="hidden" name="page" value="1">
+            <label class="page-size-label">
+                <span>每页条数</span>
+                <select name="page_size" onchange="this.form.submit()">
+                    {% for size in [10, 15, 20, 25, 50] %}
+                        <option value="{{ size }}" {% if push_config_page.page_size == size %}selected{% endif %}>{{ size }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+        </form>
+
+        {% if push_config_page.total_pages > 1 %}
+            <div class="pagination">
+                {% if push_config_page.has_prev %}
+                    <a href="/push?{{ pagination_query }}&page=1">首页</a>
+                    <a href="/push?{{ pagination_query }}&page={{ push_config_page.page - 1 }}">上一页</a>
+                {% endif %}
+                {% for item in pagination_pages %}
+                    {% if item == '...' %}
+                        <span class="ellipsis">...</span>
+                    {% elif item == push_config_page.page %}
+                        <span class="current">{{ item }}</span>
+                    {% else %}
+                        <a href="/push?{{ pagination_query }}&page={{ item }}">{{ item }}</a>
+                    {% endif %}
+                {% endfor %}
+                {% if push_config_page.has_next %}
+                    <a href="/push?{{ pagination_query }}&page={{ push_config_page.page + 1 }}">下一页</a>
+                    <a href="/push?{{ pagination_query }}&page={{ push_config_page.total_pages }}">末页</a>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+</section>
+
+<dialog id="push-config-modal" class="modal-dialog">
+    <form method="post" action="/push/configs" class="form-stack" id="push-config-form">
+        <section class="modal-section">
+            <div class="panel-header">
+                <h2 id="push-config-modal-title">新增推送配置</h2>
+            </div>
+            <input type="hidden" name="config_id" id="push-config-id" value="">
+            <div class="modal-grid">
+                <label class="field">
+                    <span>推送规则名称</span>
+                    <input type="text" name="name" placeholder="例如：NVD 高危漏洞群通知" required>
+                </label>
+                <label class="field">
+                    <span>推送通道</span>
+                    <select name="channel_type">
+                        {% for channel in push_form_options.channels %}
+                            <option value="{{ channel.value }}">{{ channel.label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label class="field field-span-2">
+                    <span>Webhook URL</span>
+                    <input type="text" name="webhook_url" placeholder="请输入完整 webhook 地址" required>
+                </label>
+                <label class="field field-span-2">
+                    <span>Secret Key</span>
+                    <input type="text" name="secret" id="push-config-secret" placeholder="可选，钉钉/飞书签名密钥">
+                </label>
+                <div id="push-config-secret-hint" class="hint-text field-span-2" hidden></div>
+                <div class="checkbox-action-row field-span-2">
+                    <label class="checkbox-field">
+                        <input type="checkbox" name="enabled" checked>
+                        <span>创建后立即启用</span>
+                    </label>
+                    <button
+                        type="button"
+                        id="push-config-test-button"
+                        class="btn btn-secondary"
+                    >测试发送</button>
+                </div>
+            </div>
+            <div id="push-config-test-feedback" class="flash" hidden></div>
+        </section>
+
+        <section class="modal-section">
+            <div class="panel-header push-rule-builder-header">
+                <h2>推送规则配置列表</h2>
+                <button type="button" class="btn btn-secondary btn-small" onclick="addPushRuleRow()">新增规则</button>
+            </div>
+            <div class="hint-text">可配置多条规则，只要命中其中任意一条就会推送。Github 规则仅按状态筛选，漏洞规则中的受影响产品按一行一个填写。</div>
+            <div id="push-rule-list" class="push-rule-builder"></div>
+        </section>
+
+        <div class="inline-actions modal-actions">
+            <button type="button" class="btn btn-secondary" onclick="closePushConfigModal()">取消</button>
+            <button type="submit" class="btn btn-primary">保存配置</button>
+        </div>
+    </form>
+</dialog>
+
+<template id="push-rule-template">
+    <div class="push-rule-card">
+        <div class="push-rule-card-head">
+            <strong>规则项</strong>
+            <button type="button" class="btn btn-danger btn-small" data-remove-rule>删除</button>
+        </div>
+        <div class="push-rule-grid">
+            <label class="field">
+                <span>数据库</span>
+                <select name="rule_type">
+                    {% for item in push_form_options.rule_types %}
+                        <option value="{{ item.value }}">{{ item.label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label class="field" data-vulnerability-field>
+                <span>来源</span>
+                <details class="multi-dropdown" data-multi-dropdown data-all-label="全部来源">
+                    <summary class="multi-dropdown-summary">
+                        <span class="multi-dropdown-text" data-multi-summary>全部来源</span>
+                    </summary>
+                    <div class="multi-dropdown-panel">
+                        <div class="multi-dropdown-actions">
+                            <button type="button" class="multi-dropdown-action" data-multi-action="select-all">全选</button>
+                            <button type="button" class="multi-dropdown-action" data-multi-action="clear">清空</button>
+                        </div>
+                        <div class="multi-dropdown-options">
+                            {% for item in push_form_options.sources %}
+                                {% if item != 'all' %}
+                                    <label class="check-option">
+                                        <input type="checkbox" name="rule_source_levels" value="{{ item }}" data-multi-option>
+                                        <span>{{ item }}</span>
+                                    </label>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                        <div class="multi-dropdown-tip">可多选，不选表示全部来源</div>
+                    </div>
+                </details>
+            </label>
+            <label class="field" data-vulnerability-field>
+                <span>等级</span>
+                <details class="multi-dropdown" data-multi-dropdown data-all-label="全部等级">
+                    <summary class="multi-dropdown-summary">
+                        <span class="multi-dropdown-text" data-multi-summary>全部等级</span>
+                    </summary>
+                    <div class="multi-dropdown-panel">
+                        <div class="multi-dropdown-actions">
+                            <button type="button" class="multi-dropdown-action" data-multi-action="select-all">全选</button>
+                            <button type="button" class="multi-dropdown-action" data-multi-action="clear">清空</button>
+                        </div>
+                        <div class="multi-dropdown-options">
+                            {% for item in push_form_options.severities %}
+                                <label class="check-option">
+                                    <input type="checkbox" name="rule_severity_levels" value="{{ item }}" data-multi-option>
+                                    <span>{{ severity_labels.get(item, item) }}</span>
+                                </label>
+                            {% endfor %}
+                        </div>
+                        <div class="multi-dropdown-tip">可多选，不选表示全部等级</div>
+                    </div>
+                </details>
+            </label>
+            <label class="field">
+                <span>状态</span>
+                <select name="rule_status">
+                    {% for item in push_form_options.statuses %}
+                        <option value="{{ item }}">{{ '全部状态' if item == 'all' else status_labels.get(item, item) }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label class="field" data-nvd-vuln-status-field hidden>
+                <span>NVD 状态</span>
+                <details class="multi-dropdown" data-multi-dropdown data-all-label="全部 NVD 状态">
+                    <summary class="multi-dropdown-summary">
+                        <span class="multi-dropdown-text" data-multi-summary>全部 NVD 状态</span>
+                    </summary>
+                    <div class="multi-dropdown-panel">
+                        <div class="multi-dropdown-actions">
+                            <button type="button" class="multi-dropdown-action" data-multi-action="select-all">全选</button>
+                            <button type="button" class="multi-dropdown-action" data-multi-action="clear">清空</button>
+                        </div>
+                        <div class="multi-dropdown-options">
+                            {% for item in push_form_options.nvd_vuln_statuses %}
+                                {% if item != 'all' %}
+                                    <label class="check-option">
+                                        <input type="checkbox" name="rule_nvd_vuln_status_levels" value="{{ item }}" data-multi-option>
+                                        <span>{{ enum_label('vuln_status', item) }}</span>
+                                    </label>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                        <div class="multi-dropdown-tip">可多选，不选表示全部 NVD 状态</div>
+                    </div>
+                </details>
+            </label>
+            <label class="field field-span-2" data-vulnerability-field>
+                <span>受影响产品</span>
+                <textarea name="rule_affected_products" rows="4" placeholder="一行一个，例如&#10;openssl&#10;nginx"></textarea>
+            </label>
+        </div>
+    </div>
+</template>
+
+<script>
+const VULNERABILITY_STATUS_OPTIONS = [
+    {% for item in push_form_options.statuses %}
+    { value: {{ item|tojson }}, label: {{ ('全部状态' if item == 'all' else status_labels.get(item, item))|tojson }} },
+    {% endfor %}
+];
+const GITHUB_STATUS_OPTIONS = [
+    {% for item in push_form_options.github_statuses %}
+    { value: {{ item.value|tojson }}, label: {{ item.label|tojson }} },
+    {% endfor %}
+];
+
+function parsePushConfigPayload(button) {
+    if (!button || !button.dataset.config) return null;
+    try {
+        return JSON.parse(button.dataset.config);
+    } catch (error) {
+        return null;
+    }
+}
+
+function syncPushRulePayload(form) {
+    if (!form) return;
+    form.querySelectorAll('input[name="rule_payload"]').forEach(function(node) {
+        node.remove();
+    });
+    document.querySelectorAll('#push-rule-list .push-rule-card').forEach(function(card) {
+        const ruleType = card.querySelector('[name="rule_type"]').value;
+        const sourceCheckboxes = Array.from(card.querySelectorAll('[name="rule_source_levels"]:checked'));
+        const severityCheckboxes = Array.from(card.querySelectorAll('[name="rule_severity_levels"]:checked'));
+        const nvdStatusCheckboxes = Array.from(card.querySelectorAll('[name="rule_nvd_vuln_status_levels"]:checked'));
+        const payload = {
+            rule_type: ruleType,
+            sources: sourceCheckboxes.map(function(option) { return option.value; }),
+            severity_levels: severityCheckboxes.map(function(option) { return option.value; }),
+            status: card.querySelector('[name="rule_status"]').value,
+            nvd_vuln_statuses: nvdStatusCheckboxes.map(function(option) { return option.value; }),
+            affected_products: card.querySelector('[name="rule_affected_products"]').value,
+        };
+        const hiddenInput = document.createElement('input');
+        hiddenInput.type = 'hidden';
+        hiddenInput.name = 'rule_payload';
+        hiddenInput.value = JSON.stringify(payload);
+        form.appendChild(hiddenInput);
+    });
+}
+
+function setPushConfigTestFeedback(level, message) {
+    const feedback = document.getElementById('push-config-test-feedback');
+    if (!feedback) return;
+    feedback.hidden = false;
+    feedback.className = 'flash flash-' + level;
+    feedback.textContent = message;
+}
+
+function clearPushConfigTestFeedback() {
+    const feedback = document.getElementById('push-config-test-feedback');
+    if (!feedback) return;
+    feedback.hidden = true;
+    feedback.className = 'flash';
+    feedback.textContent = '';
+}
+
+function resetPushConfigForm() {
+    const form = document.getElementById('push-config-form');
+    const ruleList = document.getElementById('push-rule-list');
+    const title = document.getElementById('push-config-modal-title');
+    const configId = document.getElementById('push-config-id');
+    const secretInput = document.getElementById('push-config-secret');
+    const secretHint = document.getElementById('push-config-secret-hint');
+    if (!form || !ruleList) return;
+    form.reset();
+    form.action = '/push/configs';
+    if (title) title.textContent = '新增推送配置';
+    if (configId) configId.value = '';
+    if (secretInput) {
+        secretInput.value = '';
+        secretInput.placeholder = '可选，钉钉/飞书签名密钥';
+    }
+    if (secretHint) {
+        secretHint.hidden = true;
+        secretHint.textContent = '';
+    }
+    ruleList.innerHTML = '';
+    addPushRuleRow();
+    clearPushConfigTestFeedback();
+}
+
+function initializeMultiDropdowns(root = document) {
+    root.querySelectorAll('[data-multi-dropdown]').forEach(function(dropdown) {
+        if (dropdown.dataset.bound === 'true') {
+            return;
+        }
+        dropdown.dataset.bound = 'true';
+
+        const summary = dropdown.querySelector('[data-multi-summary]');
+        const options = Array.from(dropdown.querySelectorAll('[data-multi-option]'));
+        const allLabel = dropdown.dataset.allLabel || '全部';
+
+        options.forEach(function(option) {
+            option.addEventListener('change', function() {
+                syncMultiDropdownSummary(dropdown);
+            });
+        });
+
+        dropdown.querySelectorAll('[data-multi-action]').forEach(function(button) {
+            button.addEventListener('click', function(event) {
+                event.preventDefault();
+                const action = button.dataset.multiAction;
+                options.forEach(function(option) {
+                    option.checked = action === 'select-all';
+                });
+                syncMultiDropdownSummary(dropdown);
+            });
+        });
+
+        syncMultiDropdownSummary(dropdown);
+    });
+}
+
+function syncMultiDropdownSummary(dropdown) {
+    if (!dropdown) return;
+    const summary = dropdown.querySelector('[data-multi-summary]');
+    const options = Array.from(dropdown.querySelectorAll('[data-multi-option]'));
+    const allLabel = dropdown.dataset.allLabel || '全部';
+    if (!summary) return;
+    const checked = options.filter(function(option) { return option.checked; });
+    if (!checked.length) {
+        summary.textContent = allLabel;
+        return;
+    }
+    const labels = checked.map(function(option) {
+        const textNode = option.parentElement ? option.parentElement.querySelector('span') : null;
+        return textNode ? textNode.textContent.trim() : option.value;
+    });
+    summary.textContent = labels.length <= 2 ? labels.join('、') : '已选 ' + labels.length + ' 项';
+}
+
+document.addEventListener('click', function(event) {
+    document.querySelectorAll('[data-multi-dropdown][open]').forEach(function(dropdown) {
+        if (!dropdown.contains(event.target)) {
+            dropdown.removeAttribute('open');
+        }
+    });
+});
+
+function applyPushRuleData(card, ruleData) {
+    if (!card || !ruleData) return;
+    const typeField = card.querySelector('[name="rule_type"]');
+    const statusField = card.querySelector('[name="rule_status"]');
+    const productField = card.querySelector('[name="rule_affected_products"]');
+    if (typeField) typeField.value = ruleData.rule_type || 'vulnerability';
+    if (statusField) statusField.value = ruleData.status || 'all';
+    if (productField) {
+        productField.value = Array.isArray(ruleData.affected_products)
+            ? ruleData.affected_products.join('\n')
+            : (ruleData.affected_products || '');
+    }
+    const sources = Array.isArray(ruleData.sources)
+        ? ruleData.sources
+        : (ruleData.source && ruleData.source !== 'all' ? [ruleData.source] : []);
+    card.querySelectorAll('[name="rule_source_levels"]').forEach(function(option) {
+        option.checked = sources.includes(option.value);
+    });
+    const levels = Array.isArray(ruleData.severity_levels) ? ruleData.severity_levels : [];
+    card.querySelectorAll('[name="rule_severity_levels"]').forEach(function(option) {
+        option.checked = levels.includes(option.value);
+    });
+    const nvdStatuses = Array.isArray(ruleData.nvd_vuln_statuses)
+        ? ruleData.nvd_vuln_statuses
+        : (ruleData.nvd_vuln_status ? [ruleData.nvd_vuln_status] : []);
+    card.querySelectorAll('[name="rule_nvd_vuln_status_levels"]').forEach(function(option) {
+        option.checked = nvdStatuses.includes(option.value);
+    });
+    if (typeField && typeField.value === 'github_tool' && statusField && !ruleData.status) {
+        const legacyEventTypes = Array.isArray(ruleData.event_types)
+            ? ruleData.event_types
+            : (ruleData.event_type ? [ruleData.event_type] : []);
+        statusField.dataset.pendingValue = legacyEventTypes.length === 1 ? legacyEventTypes[0] : 'all';
+    }
+    refreshPushRuleFields(card);
+}
+
+function openPushConfigModal(configData = null) {
+    const dialog = document.getElementById('push-config-modal');
+    const form = document.getElementById('push-config-form');
+    const title = document.getElementById('push-config-modal-title');
+    const configId = document.getElementById('push-config-id');
+    const secretInput = document.getElementById('push-config-secret');
+    const secretHint = document.getElementById('push-config-secret-hint');
+    const ruleList = document.getElementById('push-rule-list');
+    if (!dialog) return;
+    resetPushConfigForm();
+    if (configData && form && ruleList) {
+        form.action = '/push/configs/' + configData.id + '/update';
+        if (title) title.textContent = '编辑推送配置';
+        if (configId) configId.value = configData.id || '';
+        const nameField = form.querySelector('[name="name"]');
+        const channelField = form.querySelector('[name="channel_type"]');
+        const webhookField = form.querySelector('[name="webhook_url"]');
+        const enabledField = form.querySelector('[name="enabled"]');
+        if (nameField) nameField.value = configData.name || '';
+        if (channelField) channelField.value = configData.channel_type || 'dingding';
+        if (webhookField) webhookField.value = configData.webhook_url || '';
+        if (enabledField) enabledField.checked = Boolean(configData.enabled);
+        if (secretInput) {
+            secretInput.placeholder = configData.secret_configured ? '留空表示保持当前 Secret' : '可选，钉钉/飞书签名密钥';
+        }
+        if (secretHint) {
+            secretHint.hidden = !configData.secret_configured;
+            secretHint.textContent = configData.secret_configured ? '当前 Secret 已配置，留空表示保持不变。' : '';
+        }
+        ruleList.innerHTML = '';
+        if (Array.isArray(configData.rule_items) && configData.rule_items.length) {
+            configData.rule_items.forEach(function(ruleItem) {
+                addPushRuleRow(ruleItem);
+            });
+        } else {
+            addPushRuleRow();
+        }
+    }
+    dialog.showModal();
+}
+
+function openPushConfigModalFromButton(button) {
+    const configData = parsePushConfigPayload(button);
+    if (!configData) return;
+    openPushConfigModal(configData);
+}
+
+function closePushConfigModal() {
+    const dialog = document.getElementById('push-config-modal');
+    if (!dialog) return;
+    resetPushConfigForm();
+    dialog.close();
+}
+
+function addPushRuleRow(ruleData = null) {
+    const template = document.getElementById('push-rule-template');
+    const container = document.getElementById('push-rule-list');
+    if (!template || !container) return;
+    const fragment = template.content.cloneNode(true);
+    const card = fragment.querySelector('.push-rule-card');
+    if (card && ruleData) {
+        applyPushRuleData(card, ruleData);
+    } else if (card) {
+        refreshPushRuleFields(card);
+    }
+    initializeMultiDropdowns(fragment);
+    if (card) {
+        const typeField = card.querySelector('[name="rule_type"]');
+        const sourceFields = Array.from(card.querySelectorAll('[name="rule_source_levels"]'));
+        if (typeField) {
+            typeField.addEventListener('change', function() {
+                refreshPushRuleFields(card);
+            });
+        }
+        sourceFields.forEach(function(sourceField) {
+            sourceField.addEventListener('change', function() {
+                refreshPushRuleFields(card);
+            });
+        });
+    }
+    const removeButton = fragment.querySelector('[data-remove-rule]');
+    if (removeButton) {
+        removeButton.addEventListener('click', function(event) {
+            const card = event.target.closest('.push-rule-card');
+            if (!card) return;
+            const parent = card.parentElement;
+            card.remove();
+            if (parent && !parent.children.length) {
+                addPushRuleRow();
+            }
+        });
+    }
+    container.appendChild(fragment);
+}
+
+function refreshPushRuleFields(card) {
+    if (!card) return;
+    const ruleType = String(card.querySelector('[name="rule_type"]')?.value || 'vulnerability').toLowerCase();
+    const isGithubToolRule = ruleType === 'github_tool';
+    syncPushRuleStatusOptions(card, ruleType);
+    card.querySelectorAll('[data-vulnerability-field]').forEach(function(field) {
+        field.hidden = isGithubToolRule;
+        field.style.display = isGithubToolRule ? 'none' : '';
+        field.querySelectorAll('input, select, textarea').forEach(function(control) {
+            control.disabled = isGithubToolRule;
+        });
+    });
+
+    const selectedSources = Array.from(card.querySelectorAll('[name="rule_source_levels"]:checked')).map(function(option) {
+        return String(option.value || '').toLowerCase();
+    });
+    const nvdVulnStatusFieldWrapper = card.querySelector('[data-nvd-vuln-status-field]');
+    const nvdVulnStatusDropdown = nvdVulnStatusFieldWrapper
+        ? nvdVulnStatusFieldWrapper.querySelector('[data-multi-dropdown]')
+        : null;
+    const nvdVulnStatusOptions = Array.from(card.querySelectorAll('[name="rule_nvd_vuln_status_levels"]'));
+    const isNvdSource = !isGithubToolRule && selectedSources.includes('nvd');
+    if (nvdVulnStatusFieldWrapper) {
+        nvdVulnStatusFieldWrapper.hidden = !isNvdSource;
+        nvdVulnStatusFieldWrapper.style.display = isNvdSource ? '' : 'none';
+    }
+    nvdVulnStatusOptions.forEach(function(option) {
+        option.disabled = !isNvdSource;
+    });
+    if (!isNvdSource) {
+        nvdVulnStatusOptions.forEach(function(option) {
+            option.checked = false;
+        });
+        if (nvdVulnStatusDropdown) {
+            nvdVulnStatusDropdown.removeAttribute('open');
+        }
+        syncMultiDropdownSummary(nvdVulnStatusDropdown);
+    }
+}
+
+function syncPushRuleStatusOptions(card, ruleType) {
+    const statusField = card ? card.querySelector('[name="rule_status"]') : null;
+    if (!statusField) return;
+    const currentValue = statusField.dataset.pendingValue || statusField.value || 'all';
+    delete statusField.dataset.pendingValue;
+    const options = String(ruleType || '').toLowerCase() === 'github_tool'
+        ? GITHUB_STATUS_OPTIONS
+        : VULNERABILITY_STATUS_OPTIONS;
+    statusField.innerHTML = '';
+    let hasCurrentValue = false;
+    options.forEach(function(option) {
+        const optionNode = document.createElement('option');
+        optionNode.value = option.value;
+        optionNode.textContent = option.label;
+        if (option.value === currentValue) {
+            optionNode.selected = true;
+            hasCurrentValue = true;
+        }
+        statusField.appendChild(optionNode);
+    });
+    if (!hasCurrentValue && statusField.options.length) {
+        statusField.value = 'all';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    initializeMultiDropdowns();
+    const pushConfigForm = document.getElementById('push-config-form');
+    if (pushConfigForm) {
+        pushConfigForm.addEventListener('submit', function() {
+            syncPushRulePayload(pushConfigForm);
+        });
+    }
+    const pushConfigTestButton = document.getElementById('push-config-test-button');
+    if (pushConfigTestButton && pushConfigForm) {
+        pushConfigTestButton.addEventListener('click', async function() {
+            clearPushConfigTestFeedback();
+            syncPushRulePayload(pushConfigForm);
+            pushConfigTestButton.disabled = true;
+            const originalText = pushConfigTestButton.textContent;
+            pushConfigTestButton.textContent = '发送中...';
+            try {
+                const response = await fetch('/push/configs/test', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: new FormData(pushConfigForm),
+                });
+                const payload = await response.json().catch(function() {
+                    return {status: 'error', message: '测试接口返回异常'};
+                });
+                if (!response.ok || payload.status !== 'success') {
+                    throw new Error(payload.message || '测试发送失败');
+                }
+                setPushConfigTestFeedback('success', payload.message || '测试消息已发送');
+            } catch (error) {
+                setPushConfigTestFeedback('error', error.message || '测试发送失败');
+            } finally {
+                pushConfigTestButton.disabled = false;
+                pushConfigTestButton.textContent = originalText;
+            }
+        });
+    }
+    if (!document.getElementById('push-rule-list').children.length) {
+        addPushRuleRow();
+    }
+});
+</script>
+{% endblock %}
