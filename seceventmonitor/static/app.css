@@ -519,6 +519,76 @@ a:hover {
     margin: 0;
 }
 
+.github-poc-table {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+}
+
+.github-poc-table th,
+.github-poc-table td {
+    text-align: center !important;
+    vertical-align: middle !important;
+    white-space: nowrap !important;
+    overflow: hidden;
+}
+
+.github-poc-table thead th {
+    text-align: center !important;
+    vertical-align: middle !important;
+    white-space: nowrap !important;
+}
+
+.github-poc-table tbody td {
+    text-align: center !important;
+    vertical-align: middle !important;
+    white-space: nowrap !important;
+}
+
+.github-poc-table .cell-ellipsis {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.github-poc-table .table-link {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin: 0 auto;
+    text-align: center;
+}
+
+.github-poc-table th:nth-child(1),
+.github-poc-table td:nth-child(1) {
+    width: 18%;
+}
+
+.github-poc-table th:nth-child(2),
+.github-poc-table td:nth-child(2) {
+    width: 12%;
+}
+
+.github-poc-table th:nth-child(3),
+.github-poc-table td:nth-child(3) {
+    width: 18%;
+}
+
+.github-poc-table th:nth-child(4),
+.github-poc-table td:nth-child(4) {
+    width: 8%;
+}
+
+.github-poc-table th:nth-child(5),
+.github-poc-table td:nth-child(5) {
+    width: 44%;
+}
+
 .filter-actions {
     align-self: end;
     justify-content: flex-end;
@@ -955,6 +1025,10 @@ a:hover {
     overflow-x: auto;
 }
 
+.table-wrap-no-scroll {
+    overflow-x: hidden;
+}
+
 .data-table {
     width: 100%;
     border-collapse: collapse;
@@ -976,12 +1050,12 @@ a:hover {
 
 .vulnerability-table th:nth-child(1),
 .vulnerability-table td:nth-child(1) {
-    width: 16%;
+    width: 18%;
 }
 
 .vulnerability-table th:nth-child(2),
 .vulnerability-table td:nth-child(2) {
-    width: 34%;
+    width: 38%;
 }
 
 .vulnerability-table th:nth-child(3),
@@ -991,22 +1065,26 @@ a:hover {
 
 .vulnerability-table th:nth-child(4),
 .vulnerability-table td:nth-child(4) {
-    width: 14%;
+    width: 18%;
 }
 
 .vulnerability-table th:nth-child(5),
 .vulnerability-table td:nth-child(5) {
-    width: 6%;
+    width: 8%;
 }
 
 .vulnerability-table th:nth-child(6),
 .vulnerability-table td:nth-child(6) {
-    width: 14%;
+    width: 8%;
 }
 
-.vulnerability-table th:nth-child(7),
-.vulnerability-table td:nth-child(7) {
-    width: 6%;
+.vulnerability-table .cell-ellipsis {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
 }
 
 .data-table th,

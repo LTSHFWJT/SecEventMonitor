@@ -59,6 +59,7 @@ def initialize_database():
                 {
                     "push_config_id": "INTEGER",
                     "github_tool_id": "INTEGER",
+                    "github_poc_id": "INTEGER",
                 },
             )
             conn.execute(text("UPDATE vulnerabilities SET source = 'NVD' WHERE lower(source) = 'nvd'"))

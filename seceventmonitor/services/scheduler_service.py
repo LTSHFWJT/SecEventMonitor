@@ -7,7 +7,12 @@ from collections.abc import Callable
 from seceventmonitor.extensions import db
 from seceventmonitor.models import GithubMonitoredTool
 from seceventmonitor.services import settings as settings_service
-from seceventmonitor.services.sync_service import GITHUB_TOOLS_SYNC_SOURCE, get_vulnerability_sync_sources, start_sync_async
+from seceventmonitor.services.sync_service import (
+    GITHUB_POC_SYNC_SOURCE,
+    GITHUB_TOOLS_SYNC_SOURCE,
+    get_vulnerability_sync_sources,
+    start_sync_async,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -117,12 +122,14 @@ def _trigger_vulnerability_sync() -> None:
     logger.info("scheduled vulnerability sync dispatch result=%s", result.get("status"))
 
 
-def _trigger_github_tools_sync() -> None:
-    if GithubMonitoredTool.query.count() <= 0:
+def _trigger_github_monitor_sync() -> None:
+    sources = [GITHUB_POC_SYNC_SOURCE]
+    if GithubMonitoredTool.query.count() > 0:
+        sources.append(GITHUB_TOOLS_SYNC_SOURCE)
+    else:
         logger.info("scheduled github tool sync skipped because no monitored tools configured")
-        return
-    result = start_sync_async(source=[GITHUB_TOOLS_SYNC_SOURCE])
-    logger.info("scheduled github tool sync dispatch result=%s", result.get("status"))
+    result = start_sync_async(source=sources)
+    logger.info("scheduled github monitor sync dispatch result=%s sources=%s", result.get("status"), sources)
 
 
 _VULNERABILITY_SCHEDULER = IntervalSyncScheduler(
@@ -136,7 +143,7 @@ _GITHUB_MONITOR_SCHEDULER = IntervalSyncScheduler(
     scheduler_name="github monitor scheduler",
     thread_name="github-monitor-scheduler",
     load_interval_minutes=settings_service.get_github_monitor_interval_minutes,
-    trigger_callback=_trigger_github_tools_sync,
+    trigger_callback=_trigger_github_monitor_sync,
 )
 
 

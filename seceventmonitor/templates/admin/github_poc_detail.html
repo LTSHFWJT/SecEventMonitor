@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header">
+    <div>
+        <h1>{{ github_poc.cve_id or 'POC详情' }}</h1>
+        <p>查看 PoC 完整信息。</p>
+    </div>
+    <a href="/redteam-github/pocs" class="btn btn-secondary">返回POC监控</a>
+</section>
+
+<section class="detail-grid">
+    <article class="detail-card">
+        <span>CVE编号</span>
+        <strong>{{ github_poc.cve_id or '-' }}</strong>
+    </article>
+    <article class="detail-card">
+        <span>作者</span>
+        <strong>{{ github_poc.owner_login or '-' }}</strong>
+    </article>
+    <article class="detail-card">
+        <span>状态</span>
+        <strong>{{ status_labels.get((github_poc.status or '')|lower, github_poc.status or '-') }}</strong>
+    </article>
+    <article class="detail-card">
+        <span>最近更新时间</span>
+        <strong>{{ github_poc.repo_updated_at or github_poc.repo_pushed_at or '-' }}</strong>
+    </article>
+    <article class="detail-card">
+        <span>最近同步时间</span>
+        <strong>{{ github_poc.last_synced_at or '-' }}</strong>
+    </article>
+    <article class="detail-card">
+        <span>Stars</span>
+        <strong>{{ github_poc.stargazers_count or 0 }}</strong>
+    </article>
+    <article class="detail-card">
+        <span>Forks</span>
+        <strong>{{ github_poc.forks_count or 0 }}</strong>
+    </article>
+    <article class="detail-card">
+        <span>Watchers</span>
+        <strong>{{ github_poc.watchers_count or 0 }}</strong>
+    </article>
+    <article class="detail-card">
+        <span>Subscribers</span>
+        <strong>{{ github_poc.subscribers_count or 0 }}</strong>
+    </article>
+    <article class="detail-card">
+        <span>仓库创建时间</span>
+        <strong>{{ github_poc.repo_created_at or '-' }}</strong>
+    </article>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <h2>仓库</h2>
+    </div>
+    <div class="detail-text">{{ github_poc.repo_full_name or github_poc.repo_name or '-' }}</div>
+    {% if github_poc.repo_url %}
+        <div class="top-gap">
+            <a href="{{ github_poc.repo_url }}" target="_blank" rel="noreferrer">{{ github_poc.repo_url }}</a>
+        </div>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <h2>简介</h2>
+    </div>
+    <div class="detail-text">{{ github_poc.description or '暂无简介。' }}</div>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <h2>主题标签</h2>
+    </div>
+    <div class="detail-text">{{ github_poc.topics_text or '-' }}</div>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <h2>来源索引</h2>
+    </div>
+    <div class="detail-text">文件路径：{{ github_poc.source_file_path or '-' }}</div>
+    <div class="detail-text">文件SHA：{{ github_poc.source_file_sha or '-' }}</div>
+</section>
+{% endblock %}

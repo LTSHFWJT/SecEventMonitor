@@ -23,14 +23,15 @@
                 <details
                     class="nav-group"
                     data-nav-group="github_monitor"
-                    data-group-active="{% if current_nav in ['redteam_tools'] %}true{% else %}false{% endif %}"
-                    {% if current_nav in ['redteam_tools'] %}open{% endif %}
+                    data-group-active="{% if current_nav in ['redteam_tools', 'github_pocs'] %}true{% else %}false{% endif %}"
+                    {% if current_nav in ['redteam_tools', 'github_pocs'] %}open{% endif %}
                 >
-                    <summary class="nav-item nav-item-parent {% if current_nav in ['redteam_tools'] %}active{% endif %}">
+                    <summary class="nav-item nav-item-parent {% if current_nav in ['redteam_tools', 'github_pocs'] %}active{% endif %}">
                         <span>Github监控</span>
                     </summary>
                     <div class="nav-sublist">
                         <a href="/redteam-github/tools" class="nav-subitem {% if current_nav == 'redteam_tools' %}active{% endif %}">红队工具</a>
+                        <a href="/redteam-github/pocs" class="nav-subitem {% if current_nav == 'github_pocs' %}active{% endif %}">POC监控</a>
                     </div>
                 </details>
                 <a href="/monitor-config" class="nav-item {% if current_nav == 'monitor_config' %}active{% endif %}">监控配置</a>

@@ -15,6 +15,8 @@ GITHUB_TOOL_EVENT_LABELS = {
     "new_repo": "新增仓库",
     "repo_updated": "仓库信息更新",
     "version_updated": "新版本发布/版本变化",
+    "poc_new": "新增POC",
+    "poc_updated": "POC更新",
 }
 GITHUB_TOOL_ALL_STATUS = "all"
 

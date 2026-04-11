@@ -88,7 +88,6 @@
                     <th>来源</th>
                     <th>状态</th>
                     <th>最近发现时间</th>
-                    <th>详情</th>
                 </tr>
             </thead>
             <tbody>
@@ -101,16 +100,15 @@
                     <td>
                         <span class="badge badge-{{ vuln.severity|lower }}">{{ severity_labels.get((vuln.severity or '')|lower, vuln.severity or '-') }}</span>
                     </td>
-                    <td>{{ vuln.source or '-' }}</td>
+                    <td class="cell-nowrap">
+                        <span class="cell-ellipsis" title="{{ vuln.source or '-' }}">{{ vuln.source or '-' }}</span>
+                    </td>
                     <td>{{ status_labels.get((vuln.status or '')|lower, vuln.status or '-') }}</td>
                     <td class="cell-nowrap">{{ (vuln.last_seen_at or '-')[:10] if vuln.last_seen_at else '-' }}</td>
-                    <td>
-                        <a class="table-link" href="/monitor/vulnerability/{{ vuln.id }}">查看</a>
-                    </td>
                 </tr>
             {% else %}
                 <tr>
-                    <td colspan="7" class="empty-cell">当前筛选条件下没有匹配的漏洞数据。</td>
+                    <td colspan="6" class="empty-cell">当前筛选条件下没有匹配的漏洞数据。</td>
                 </tr>
             {% endfor %}
             </tbody>

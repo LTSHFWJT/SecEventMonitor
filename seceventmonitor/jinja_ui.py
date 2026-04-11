@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 from seceventmonitor.config import Config
 from seceventmonitor.extensions import db
-from seceventmonitor.models import Vulnerability
+from seceventmonitor.models import GithubPocEntry, Vulnerability
 from seceventmonitor.services.collectors import list_supported_vulnerability_sources
 from seceventmonitor.services import settings as settings_service
 from seceventmonitor.services.admin_service import (
@@ -30,6 +30,7 @@ from seceventmonitor.services.github_api_service import (
     toggle_github_api_config,
     update_github_api_config,
 )
+from seceventmonitor.services.github_poc_service import list_github_poc_entries_paginated
 from seceventmonitor.services.github_monitor_service import (
     delete_github_monitored_tool,
     import_github_monitored_tools,
@@ -276,6 +277,67 @@ def register_jinja_ui(app: FastAPI) -> None:
                 tool_page["page"],
                 tool_page["total_pages"],
             ),
+        )
+
+    @app.get("/redteam-github/pocs", response_class=HTMLResponse, include_in_schema=False)
+    async def github_pocs_page(
+        request: Request,
+        page: int = 1,
+        page_size: int = 10,
+        keyword: str = "",
+        status: str = "all",
+    ):
+        admin = _require_admin(request)
+        if admin is None:
+            return RedirectResponse(url="/login", status_code=303)
+        poc_page = list_github_poc_entries_paginated(
+            page=page,
+            page_size=page_size,
+            keyword=keyword,
+            status=status,
+        )
+        return _render(
+            request,
+            "admin/github_pocs.html",
+            title="POC监控",
+            admin=admin,
+            current_nav="github_pocs",
+            poc_page=poc_page,
+            poc_status_options=["all", "new", "updated"],
+            filter_state={
+                "keyword": keyword,
+                "status": status,
+                "page_size": page_size,
+            },
+            pagination_query=urlencode(
+                {
+                    "keyword": keyword,
+                    "status": status,
+                    "page_size": page_size,
+                }
+            ),
+            pagination_pages=_build_pagination_pages(
+                poc_page["page"],
+                poc_page["total_pages"],
+            ),
+        )
+
+    @app.get("/redteam-github/pocs/{poc_id}", response_class=HTMLResponse, include_in_schema=False)
+    async def github_poc_detail_page(request: Request, poc_id: int):
+        admin = _require_admin(request)
+        if admin is None:
+            return RedirectResponse(url="/login", status_code=303)
+        poc_entry = db.session.get(GithubPocEntry, poc_id)
+        if poc_entry is None:
+            _set_flash(request, "POC 记录不存在", "error")
+            return RedirectResponse(url="/redteam-github/pocs", status_code=303)
+        return _render(
+            request,
+            "admin/github_poc_detail.html",
+            title=poc_entry.cve_id or "POC详情",
+            admin=admin,
+            current_nav="github_pocs",
+            github_poc=poc_entry.to_dict(timezone_name=settings_service.get_timezone_name()),
         )
 
     @app.post("/redteam-github/tools", include_in_schema=False)

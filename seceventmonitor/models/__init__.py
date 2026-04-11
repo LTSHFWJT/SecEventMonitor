@@ -1,6 +1,7 @@
 from seceventmonitor.models.admin_user import AdminUser
 from seceventmonitor.models.github_api_config import GithubApiConfig
 from seceventmonitor.models.github_monitored_tool import GithubMonitoredTool
+from seceventmonitor.models.github_poc_entry import GithubPocEntry
 from seceventmonitor.models.kev_catalog_entry import KevCatalogEntry
 from seceventmonitor.models.push_channel import PushChannel
 from seceventmonitor.models.push_config import PushConfig
@@ -17,6 +18,7 @@ __all__ = [
     "AdminUser",
     "GithubApiConfig",
     "GithubMonitoredTool",
+    "GithubPocEntry",
     "KevCatalogEntry",
     "PushChannel",
     "PushConfig",

@@ -76,6 +76,30 @@ def notify_github_tool_event(github_tool_event):
     return success_count
 
 
+def notify_github_poc_event(github_poc_event):
+    enabled_configs = list_enabled_push_configs()
+    if not enabled_configs:
+        return 0
+
+    matched_configs = _resolve_target_configs(github_poc_event, enabled_configs)
+    if not matched_configs:
+        return 0
+
+    success_count = 0
+    title, content = render_github_poc_message(github_poc_event)
+    github_poc_id = getattr(github_poc_event, "github_poc_id", None) or getattr(github_poc_event, "id", None)
+    for config in matched_configs:
+        title, content = render_github_poc_message(github_poc_event)
+        success_count += _push_with_log(
+            config=config,
+            vulnerability_id=None,
+            github_poc_id=github_poc_id,
+            title=title,
+            content=content,
+        )
+    return success_count
+
+
 def dispatch_vulnerability_notifications(notification_targets):
     targets = [item for item in notification_targets if isinstance(item, dict) and item.get("id")]
     if not targets:
@@ -100,6 +124,21 @@ def dispatch_github_tool_notifications(notification_targets):
         target=_dispatch_github_tool_notifications_worker,
         args=(targets,),
         name=f"github-push-{targets[0]['id']}",
+        daemon=True,
+    )
+    worker.start()
+    return len(targets)
+
+
+def dispatch_github_poc_notifications(notification_targets):
+    targets = [item for item in notification_targets if isinstance(item, dict) and item.get("id")]
+    if not targets:
+        return 0
+
+    worker = threading.Thread(
+        target=_dispatch_github_poc_notifications_worker,
+        args=(targets,),
+        name=f"github-poc-push-{targets[0]['id']}",
         daemon=True,
     )
     worker.start()
@@ -212,6 +251,32 @@ def render_github_tool_message(github_tool_event):
     return title, PUSH_LINE_BREAK.join(lines)
 
 
+def render_github_poc_message(github_poc_event):
+    event_type = str(getattr(github_poc_event, "event_type", "") or "").strip().lower()
+    event_label = GITHUB_TOOL_EVENT_LABELS.get(event_type, event_type or "-")
+    cve_id = str(getattr(github_poc_event, "cve_id", "") or "").strip() or "-"
+    repo_full_name = str(getattr(github_poc_event, "repo_full_name", "") or "").strip() or "-"
+    owner_login = str(getattr(github_poc_event, "owner_login", "") or "").strip() or "-"
+    description = str(getattr(github_poc_event, "description", "") or "").strip() or "-"
+    repo_url = str(getattr(github_poc_event, "repo_url", "") or "").strip() or "-"
+    repo_updated_at = format_datetime(
+        getattr(github_poc_event, "repo_updated_at", None),
+        timezone_name=get_timezone_name(),
+    ) or "-"
+
+    title = f"[POC监控] {cve_id}"
+    lines = [
+        f"事件：{event_label}",
+        f"CVE编号：{cve_id}",
+        f"PoC仓库：{repo_full_name}",
+        f"作者：{owner_login}",
+        f"最近更新时间：{repo_updated_at}",
+        f"简介：{_normalize_push_text(description) or '-'}",
+        f"链接：{repo_url}",
+    ]
+    return title, PUSH_LINE_BREAK.join(lines)
+
+
 def _resolve_target_configs(vulnerability, enabled_configs):
     matched = []
     for config in enabled_configs:
@@ -248,12 +313,35 @@ def _dispatch_github_tool_notifications_worker(targets):
         db.remove()
 
 
-def _push_with_log(config, vulnerability_id, title, content, github_tool_id=None, raise_on_error=False):
+def _dispatch_github_poc_notifications_worker(targets):
+    try:
+        for payload in targets:
+            try:
+                github_poc_event = SimpleNamespace(notification_type=RULE_TYPE_GITHUB_TOOL, **payload)
+                notify_github_poc_event(github_poc_event)
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                logger.exception("failed to deliver async notification for github poc %s", payload.get("id"))
+    finally:
+        db.remove()
+
+
+def _push_with_log(
+    config,
+    vulnerability_id,
+    title,
+    content,
+    github_tool_id=None,
+    github_poc_id=None,
+    raise_on_error=False,
+):
     pusher = build_pusher(config)
     push_log = PushLog(
         push_config_id=getattr(config, "id", None),
         vulnerability_id=vulnerability_id,
         github_tool_id=github_tool_id,
+        github_poc_id=github_poc_id,
         status="pending",
         message="准备发送",
     )

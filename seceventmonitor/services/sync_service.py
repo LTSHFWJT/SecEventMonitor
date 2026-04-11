@@ -7,8 +7,13 @@ from datetime import UTC, datetime
 from seceventmonitor.extensions import db
 from seceventmonitor.models import KevCatalogEntry, SyncJobLog, Vulnerability, VulnerabilityEvent
 from seceventmonitor.services.collectors import COLLECTOR_MAP, SYNC_SOURCE_LABELS, list_sync_source_options
+from seceventmonitor.services.github_poc_service import sync_github_poc_entries
 from seceventmonitor.services.github_monitor_service import refresh_github_monitored_tools
-from seceventmonitor.services.pushers.service import dispatch_github_tool_notifications, dispatch_vulnerability_notifications
+from seceventmonitor.services.pushers.service import (
+    dispatch_github_poc_notifications,
+    dispatch_github_tool_notifications,
+    dispatch_vulnerability_notifications,
+)
 from seceventmonitor.services import settings as settings_service
 from seceventmonitor.services.translation_service import infer_translation_language, translate_text_to_zh
 
@@ -18,8 +23,10 @@ _ACTIVE_SOURCES: set[str] = set()
 _ACTIVE_SOURCES_LOCK = threading.Lock()
 logger = logging.getLogger(__name__)
 GITHUB_TOOLS_SYNC_SOURCE = "github_tools"
+GITHUB_POC_SYNC_SOURCE = "github_pocs"
 EXTRA_SYNC_SOURCE_LABELS = {
     GITHUB_TOOLS_SYNC_SOURCE: "红队工具",
+    GITHUB_POC_SYNC_SOURCE: "POC监控",
 }
 ALL_SYNC_SOURCE_LABELS = {
     **SYNC_SOURCE_LABELS,
@@ -234,6 +241,73 @@ def _run_github_tools_source(job_id):
             "updated": 0,
             "queued_notifications": 0,
         }
+
+
+def _run_github_poc_source(job_id):
+    source_label = ALL_SYNC_SOURCE_LABELS.get(GITHUB_POC_SYNC_SOURCE, GITHUB_POC_SYNC_SOURCE)
+    started_at = datetime.now(UTC)
+    job_name = f"sync:{GITHUB_POC_SYNC_SOURCE}"
+    job = db.session.get(SyncJobLog, job_id)
+    if job is None:
+        job_id = _create_job(GITHUB_POC_SYNC_SOURCE, status="running", message="同步开始")
+        job = db.session.get(SyncJobLog, job_id)
+    else:
+        job.status = "running"
+        job.message = "同步开始"
+        job.started_at = job.started_at or started_at
+        job.finished_at = None
+        db.session.commit()
+
+    try:
+        result = sync_github_poc_entries(progress_callback=_build_progress_callback(job.id, GITHUB_POC_SYNC_SOURCE))
+        queued_notifications = int(result.get("queued_notifications") or 0)
+        total_files = int(result.get("total_files") or 0)
+        changed_files = int(result.get("changed_files") or 0)
+        inserted = int(result.get("inserted") or 0)
+        updated = int(result.get("updated") or 0)
+        deleted = int(result.get("deleted") or 0)
+        job = db.session.get(SyncJobLog, job.id)
+        job.status = "success"
+        job.message = (
+            f"扫描 {total_files} 个索引文件，变更 {changed_files} 个，新增 {inserted} 条，"
+            f"更新 {updated} 条，删除 {deleted} 条，待异步筛选推送 {queued_notifications} 条"
+        )
+        job.finished_at = datetime.now(UTC)
+        db.session.commit()
+        _start_post_commit_github_poc_notifications(job.id, result.get("notification_targets") or [])
+        return {
+            "status": job.status,
+            "message": job.message,
+            "record_count": total_files,
+            "inserted": inserted,
+            "updated": updated,
+            "queued_notifications": queued_notifications,
+        }
+    except Exception as exc:
+        db.session.rollback()
+        failed_job = db.session.get(SyncJobLog, job_id)
+        if failed_job is None:
+            failed_job = SyncJobLog(
+                job_name=job_name,
+                status="failed",
+                message=str(exc),
+                started_at=started_at,
+            )
+            db.session.add(failed_job)
+        failed_job.status = "failed"
+        failed_job.message = str(exc)
+        failed_job.finished_at = datetime.now(UTC)
+        db.session.commit()
+        return {
+            "status": "failed",
+            "message": str(exc),
+            "record_count": 0,
+            "inserted": 0,
+            "updated": 0,
+            "queued_notifications": 0,
+        }
+
+
 def get_last_success_time(job_name):
     item = (
         SyncJobLog.query.filter_by(job_name=job_name, status="success")
@@ -476,6 +550,21 @@ def _start_post_commit_github_tool_notifications(job_id, notification_targets):
         db.session.commit()
 
 
+def _start_post_commit_github_poc_notifications(job_id, notification_targets):
+    if not notification_targets:
+        return
+
+    try:
+        dispatch_github_poc_notifications(notification_targets)
+    except Exception as exc:
+        logger.exception("failed to start async github poc notification delivery for sync job %s", job_id)
+        job = db.session.get(SyncJobLog, job_id)
+        if job is None:
+            return
+        job.message = f"{job.message}；异步推送启动失败: {exc}"
+        db.session.commit()
+
+
 def _merge_status(results):
     statuses = {item["status"] for item in results.values()}
     if statuses == {"success"}:
@@ -487,13 +576,13 @@ def _merge_status(results):
 
 def _normalize_sources(source):
     if source in (None, "", "all"):
-        requested_sources = [*COLLECTOR_MAP.keys(), GITHUB_TOOLS_SYNC_SOURCE]
+        requested_sources = [*COLLECTOR_MAP.keys(), GITHUB_TOOLS_SYNC_SOURCE, GITHUB_POC_SYNC_SOURCE]
     elif isinstance(source, str):
         requested_sources = [source]
     elif isinstance(source, Iterable):
         requested_sources = [str(item).strip() for item in source if str(item).strip()]
         if not requested_sources:
-            requested_sources = [*COLLECTOR_MAP.keys(), GITHUB_TOOLS_SYNC_SOURCE]
+            requested_sources = [*COLLECTOR_MAP.keys(), GITHUB_TOOLS_SYNC_SOURCE, GITHUB_POC_SYNC_SOURCE]
     else:
         requested_sources = [str(source).strip()]
 
@@ -527,7 +616,7 @@ def _create_job(source_name, status, message):
 
 
 def _build_progress_callback(job_id, source_name):
-    if source_name == GITHUB_TOOLS_SYNC_SOURCE:
+    if source_name in {GITHUB_TOOLS_SYNC_SOURCE, GITHUB_POC_SYNC_SOURCE}:
         def callback(**progress):
             current_index = progress.get("current_index", 0)
             total_count = progress.get("total_count", 0)
@@ -632,6 +721,8 @@ def _run_sync_async_worker(requested_sources, job_ids):
 def _run_source(source_name, job_id):
     if source_name == GITHUB_TOOLS_SYNC_SOURCE:
         return _run_github_tools_source(job_id)
+    if source_name == GITHUB_POC_SYNC_SOURCE:
+        return _run_github_poc_source(job_id)
     collector_cls = COLLECTOR_MAP.get(source_name)
     if collector_cls is None:
         _update_job_state(job_id, status="failed", message="不支持的同步源")

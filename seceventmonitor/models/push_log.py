@@ -24,6 +24,12 @@ class PushLog(db.Model, TimestampMixin):
         nullable=True,
         index=True,
     )
+    github_poc_id = db.Column(
+        db.Integer,
+        db.ForeignKey("github_poc_entries.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     push_config_id = db.Column(
         db.Integer,
         db.ForeignKey("push_configs.id", ondelete="SET NULL"),
