@@ -1,5 +1,6 @@
 from seceventmonitor.services.collectors.base import BaseCollector
 from seceventmonitor.services.collectors.chaitin import ChaitinCollector
+from seceventmonitor.services.collectors.cnnvd import CnnvdCollector
 from seceventmonitor.services.collectors.kev import KevCollector
 from seceventmonitor.services.collectors.nvd import NvdCollector
 from seceventmonitor.services.collectors.oscs import OscsCollector
@@ -10,6 +11,7 @@ from seceventmonitor.services.collectors.venustech import VenustechCollector
 
 COLLECTOR_MAP = {
     "nvd": NvdCollector,
+    "cnnvd": CnnvdCollector,
     "chaitin": ChaitinCollector,
     "oscs": OscsCollector,
     "qianxin_ti": QianxinTiCollector,
@@ -21,6 +23,7 @@ COLLECTOR_MAP = {
 
 SYNC_SOURCE_LABELS = {
     "nvd": "NVD",
+    "cnnvd": "CNNVD",
     "chaitin": "长亭漏洞库",
     "oscs": "OSCS开源安全情报预警",
     "qianxin_ti": "奇安信威胁情报中心",
@@ -42,6 +45,7 @@ def list_supported_vulnerability_sources():
 __all__ = [
     "BaseCollector",
     "ChaitinCollector",
+    "CnnvdCollector",
     "COLLECTOR_MAP",
     "KevCollector",
     "NvdCollector",

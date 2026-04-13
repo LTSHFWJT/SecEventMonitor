@@ -2,6 +2,7 @@ import math
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, or_
+from sqlalchemy.orm import load_only
 
 from seceventmonitor.extensions import db
 from seceventmonitor.models import (
@@ -13,11 +14,32 @@ from seceventmonitor.models import (
     VulnerabilityEvent,
     WatchRule,
 )
+from seceventmonitor.services.collectors import list_supported_vulnerability_sources
 from seceventmonitor.services import settings as settings_service
 from seceventmonitor.utils.affected_versions import deserialize_affected_entries, matches_affected_filters
 from seceventmonitor.utils.timezone import format_datetime
 
 KEV_SOURCE_LABEL = "CISA KEV"
+VULNERABILITY_LIST_COLUMNS = (
+    Vulnerability.id,
+    Vulnerability.vuln_key,
+    Vulnerability.cve_id,
+    Vulnerability.description,
+    Vulnerability.translated_description,
+    Vulnerability.severity,
+    Vulnerability.source,
+    Vulnerability.status,
+    Vulnerability.last_seen_at,
+    Vulnerability.created_at,
+)
+VULNERABILITY_AFFECTED_FILTER_COLUMNS = (
+    *VULNERABILITY_LIST_COLUMNS,
+    Vulnerability.title,
+    Vulnerability.remediation,
+    Vulnerability.affected_versions,
+    Vulnerability.affected_products,
+    Vulnerability.affected_version_data,
+)
 
 
 def get_overview():
@@ -95,7 +117,8 @@ def list_vulnerabilities_paginated(
     page_size = min(max(int(page_size or 20), 1), 100)
     keyword = (keyword or "").strip().lower()
     severities = _normalize_multi_values(severity)
-    source = (source or "all").strip().lower()
+    source_value = (source or "all").strip()
+    source = source_value.lower()
     status = (status or "all").strip().lower()
     affected_product = (affected_product or "").strip().lower()
     affected_version = (affected_version or "").strip()
@@ -116,17 +139,17 @@ def list_vulnerabilities_paginated(
             )
         )
     if severities:
-        query = query.filter(func.lower(Vulnerability.severity).in_(severities))
+        query = query.filter(Vulnerability.severity.in_(severities))
     if source == KEV_SOURCE_LABEL.lower():
         query = query.filter(
             func.upper(Vulnerability.cve_id).in_(db.session.query(KevCatalogEntry.cve_id))
         ).filter(
-            func.lower(Vulnerability.source) == "nvd"
+            Vulnerability.source == "NVD"
         )
     elif source != "all":
-        query = query.filter(func.lower(Vulnerability.source) == source)
+        query = query.filter(Vulnerability.source == source_value)
     if status != "all":
-        query = query.filter(func.lower(Vulnerability.status) == status)
+        query = query.filter(Vulnerability.status == status)
     if affected_product:
         product_pattern = f"%{affected_product}%"
         query = query.filter(
@@ -143,7 +166,7 @@ def list_vulnerabilities_paginated(
     ordered_query = query.order_by(Vulnerability.created_at.desc())
 
     if uses_advanced_affected_filter:
-        candidates = ordered_query.all()
+        candidates = ordered_query.options(load_only(*VULNERABILITY_AFFECTED_FILTER_COLUMNS)).all()
         filtered_items = [
             item
             for item in candidates
@@ -163,10 +186,10 @@ def list_vulnerabilities_paginated(
         total_pages = max(1, math.ceil(total / page_size)) if total else 1
         page = min(page, total_pages)
         offset = (page - 1) * page_size
-        items = ordered_query.offset(offset).limit(page_size).all()
+        items = ordered_query.options(load_only(*VULNERABILITY_LIST_COLUMNS)).offset(offset).limit(page_size).all()
 
     return {
-        "items": [item.to_dict(timezone_name=timezone_name) for item in items],
+        "items": [_serialize_vulnerability_list_item(item, timezone_name=timezone_name) for item in items],
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -177,7 +200,7 @@ def list_vulnerabilities_paginated(
 
 
 def get_vulnerability_filter_options():
-    sources = [
+    existing_sources = [
         row[0]
         for row in db.session.query(Vulnerability.source)
         .filter(Vulnerability.source.isnot(None))
@@ -189,8 +212,22 @@ def get_vulnerability_filter_options():
         and str(row[0]).strip().lower() != "manual"
         and str(row[0]).strip().lower() not in {"阿里云漏洞库", "aliyun_avd"}
     ]
-    if KEV_SOURCE_LABEL not in sources:
+    sources = []
+    seen_sources = set()
+    for item in [*list_supported_vulnerability_sources(), *existing_sources]:
+        normalized = str(item or "").strip()
+        lowered = normalized.lower()
+        if not normalized:
+            continue
+        if lowered.startswith("github") or lowered in {"manual", "阿里云漏洞库", "aliyun_avd"}:
+            continue
+        if lowered in seen_sources:
+            continue
+        seen_sources.add(lowered)
+        sources.append(normalized)
+    if KEV_SOURCE_LABEL.lower() not in seen_sources:
         sources.append(KEV_SOURCE_LABEL)
+
     status_values = [
         row[0]
         for row in db.session.query(Vulnerability.status)
@@ -321,6 +358,23 @@ def _matches_affected_search(vulnerability, *, affected_product="", affected_ver
     if version_keyword and version_keyword not in fallback_text:
         return False
     return bool(product_keyword or version_keyword)
+
+
+def _serialize_vulnerability_list_item(vulnerability, *, timezone_name: str | None = None):
+    return {
+        "id": vulnerability.id,
+        "vuln_key": vulnerability.vuln_key,
+        "cve_id": vulnerability.cve_id,
+        "display_identifier": vulnerability.display_identifier,
+        "source_identifier": vulnerability.source_identifier,
+        "description": vulnerability.description,
+        "translated_description": vulnerability.translated_description,
+        "severity": vulnerability.severity,
+        "source": vulnerability.source,
+        "status": vulnerability.status,
+        "last_seen_at": format_datetime(vulnerability.last_seen_at, timezone_name),
+        "created_at": format_datetime(vulnerability.created_at, timezone_name),
+    }
 
 
 def _normalize_multi_values(value):

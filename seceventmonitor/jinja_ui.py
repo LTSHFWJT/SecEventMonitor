@@ -601,7 +601,7 @@ def register_jinja_ui(app: FastAPI) -> None:
         return _render(
             request,
             "admin/vulnerability_detail.html",
-            title=vulnerability.cve_id or "漏洞详情",
+            title=vulnerability.display_identifier or vulnerability.cve_id or "漏洞详情",
             admin=admin,
             current_nav="monitor",
             vulnerability=vulnerability.to_dict(timezone_name=settings_service.get_timezone_name()),

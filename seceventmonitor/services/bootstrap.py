@@ -62,8 +62,34 @@ def initialize_database():
                     "github_poc_id": "INTEGER",
                 },
             )
+            _ensure_sqlite_indexes(
+                conn,
+                [
+                    (
+                        "idx_vulnerabilities_created_at_desc",
+                        "CREATE INDEX IF NOT EXISTS idx_vulnerabilities_created_at_desc "
+                        "ON vulnerabilities(created_at DESC)",
+                    ),
+                    (
+                        "idx_vulnerabilities_source_created_at_desc",
+                        "CREATE INDEX IF NOT EXISTS idx_vulnerabilities_source_created_at_desc "
+                        "ON vulnerabilities(source, created_at DESC)",
+                    ),
+                    (
+                        "idx_vulnerabilities_status_created_at_desc",
+                        "CREATE INDEX IF NOT EXISTS idx_vulnerabilities_status_created_at_desc "
+                        "ON vulnerabilities(status, created_at DESC)",
+                    ),
+                    (
+                        "idx_vulnerabilities_severity_created_at_desc",
+                        "CREATE INDEX IF NOT EXISTS idx_vulnerabilities_severity_created_at_desc "
+                        "ON vulnerabilities(severity, created_at DESC)",
+                    ),
+                ],
+            )
             conn.execute(text("UPDATE vulnerabilities SET source = 'NVD' WHERE lower(source) = 'nvd'"))
             _backfill_affected_version_search_fields(conn)
+            conn.execute(text("PRAGMA optimize;"))
 
 
 def seed_default_records():
@@ -83,6 +109,17 @@ def _ensure_sqlite_columns(conn, table_name, columns):
         if column_name in existing_columns:
             continue
         conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"))
+
+
+def _ensure_sqlite_indexes(conn, indexes):
+    existing_indexes = {
+        row[1]
+        for row in conn.execute(text("SELECT type, name FROM sqlite_master WHERE type = 'index'")).fetchall()
+    }
+    for index_name, create_sql in indexes:
+        if index_name in existing_indexes:
+            continue
+        conn.execute(text(create_sql))
 
 
 def _backfill_affected_version_search_fields(conn):

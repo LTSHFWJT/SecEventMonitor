@@ -179,6 +179,87 @@ def _run_single_source(source_name, collector_cls, job_id):
         }
 
 
+def _run_cnnvd_source(job_id):
+    source_name = "cnnvd"
+    job_name = f"sync:{source_name}"
+    started_at = datetime.now(UTC)
+    source_label = SYNC_SOURCE_LABELS.get(source_name, source_name.upper())
+    job = db.session.get(SyncJobLog, job_id)
+    if job is None:
+        job_id = _create_job(source_name, status="running", message="同步开始")
+        job = db.session.get(SyncJobLog, job_id)
+    else:
+        job.status = "running"
+        job.message = "同步开始"
+        job.started_at = job.started_at or started_at
+        job.finished_at = None
+        db.session.commit()
+
+    try:
+        collector = COLLECTOR_MAP[source_name]()
+        last_success_time = get_last_success_time(job_name)
+        inserted = 0
+        updated = 0
+        record_count = 0
+        notification_targets = []
+
+        for batch in collector.iter_batches(
+            since=last_success_time,
+            progress_callback=_build_progress_callback(job.id, source_name),
+            stop_on_existing=last_success_time is not None,
+        ):
+            batch_inserted, batch_updated, batch_targets = upsert_vulnerabilities(batch)
+            inserted += batch_inserted
+            updated += batch_updated
+            record_count += len(batch)
+            notification_targets.extend(batch_targets)
+
+            job = db.session.get(SyncJobLog, job.id)
+            if job is not None:
+                job.status = "running"
+                job.message = f"{source_label} 已入库 {record_count} 条，新增 {inserted} 条，更新 {updated} 条"
+            db.session.commit()
+
+        queued_notifications = len(notification_targets)
+        job = db.session.get(SyncJobLog, job.id)
+        job.status = "success"
+        job.message = f"抓取 {record_count} 条，新增 {inserted} 条，更新 {updated} 条，待异步筛选推送 {queued_notifications} 条"
+        job.finished_at = datetime.now(UTC)
+        db.session.commit()
+        _start_post_commit_notifications(job.id, notification_targets)
+        return {
+            "status": job.status,
+            "message": job.message,
+            "record_count": record_count,
+            "inserted": inserted,
+            "updated": updated,
+            "queued_notifications": queued_notifications,
+        }
+    except Exception as exc:
+        db.session.rollback()
+        failed_job = db.session.get(SyncJobLog, job_id)
+        if failed_job is None:
+            failed_job = SyncJobLog(
+                job_name=job_name,
+                status="failed",
+                message=str(exc),
+                started_at=started_at,
+            )
+            db.session.add(failed_job)
+        failed_job.status = "failed"
+        failed_job.message = str(exc)
+        failed_job.finished_at = datetime.now(UTC)
+        db.session.commit()
+        return {
+            "status": "failed",
+            "message": str(exc),
+            "record_count": 0,
+            "inserted": 0,
+            "updated": 0,
+            "queued_notifications": 0,
+        }
+
+
 def _run_github_tools_source(job_id):
     source_label = ALL_SYNC_SOURCE_LABELS.get(GITHUB_TOOLS_SYNC_SOURCE, GITHUB_TOOLS_SYNC_SOURCE)
     started_at = datetime.now(UTC)
@@ -629,7 +710,7 @@ def _build_progress_callback(job_id, source_name):
 
         return callback
 
-    if source_name not in {"nvd", "oscs"}:
+    if source_name not in {"nvd", "oscs", "cnnvd"}:
         return None
 
     def callback(**progress):
@@ -719,6 +800,8 @@ def _run_sync_async_worker(requested_sources, job_ids):
 
 
 def _run_source(source_name, job_id):
+    if source_name == "cnnvd":
+        return _run_cnnvd_source(job_id)
     if source_name == GITHUB_TOOLS_SYNC_SOURCE:
         return _run_github_tools_source(job_id)
     if source_name == GITHUB_POC_SYNC_SOURCE:
