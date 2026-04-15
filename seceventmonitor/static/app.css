@@ -256,6 +256,13 @@ a:hover {
     line-height: 1;
 }
 
+.stat-meta {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
 .panel {
     padding: 22px;
     margin-bottom: 18px;
@@ -934,6 +941,36 @@ a:hover {
 .badge-unknown {
     background: #e8f1ff;
     color: #325c93;
+}
+
+.badge-status-idle {
+    background: #edf2f7;
+    color: #516173;
+}
+
+.badge-status-queued {
+    background: #eef2ff;
+    color: #4b5fb8;
+}
+
+.badge-status-running {
+    background: #e3f2fd;
+    color: #1d5d92;
+}
+
+.badge-status-success {
+    background: #e9f8ef;
+    color: var(--success);
+}
+
+.badge-status-failed {
+    background: #fff1ef;
+    color: var(--danger);
+}
+
+.badge-status-partial {
+    background: #fff6de;
+    color: #996300;
 }
 
 .vuln-desc,

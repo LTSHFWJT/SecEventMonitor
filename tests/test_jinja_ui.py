@@ -3,14 +3,27 @@ import os
 import re
 import tempfile
 import unittest
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 
 from seceventmonitor import create_app
 from seceventmonitor.extensions import db
-from seceventmonitor.models import PushConfig, Vulnerability
+from seceventmonitor.models import (
+    GithubApiConfig,
+    GithubMonitoredTool,
+    GithubPocEntry,
+    PushConfig,
+    PushLog,
+    SyncJobLog,
+    TranslationApiConfig,
+    Vulnerability,
+    VulnerabilityEvent,
+    WatchRule,
+)
 from seceventmonitor.utils.affected_versions import (
     build_affected_products_text,
     parse_affected_versions_text,
@@ -304,6 +317,124 @@ class JinjaUiSmokeTest(unittest.TestCase):
         self.assertIn("openssl: &gt;= 3.0.0, &lt; 3.0.8", response.text)
         self.assertIn("解决建议", response.text)
         self.assertIn("Upgrade to 3.0.8 or later.", response.text)
+
+    def test_overview_shows_operational_and_github_metrics(self) -> None:
+        self._setup_admin()
+        now = datetime.now(UTC).replace(tzinfo=None)
+
+        vulnerability = Vulnerability(
+            vuln_key="nvd:CVE-2026-3001",
+            cve_id="CVE-2026-3001",
+            title="overview vuln",
+            description="overview desc",
+            severity="critical",
+            source="NVD",
+            status="new",
+            last_seen_at=now,
+        )
+        db.session.add(vulnerability)
+        db.session.flush()
+
+        db.session.add_all(
+            [
+                VulnerabilityEvent(vulnerability_id=vulnerability.id, event_type="new", message="created"),
+                VulnerabilityEvent(vulnerability_id=vulnerability.id, event_type="updated", message="updated"),
+                GithubMonitoredTool(
+                    repo_full_name="owner/redtool",
+                    repo_url="https://github.com/owner/redtool",
+                    tool_name="redtool",
+                    version="1.2.3",
+                    repo_updated_at=now,
+                    last_synced_at=now,
+                ),
+                GithubPocEntry(
+                    poc_key="github-poc:1001",
+                    cve_id="CVE-2026-3001",
+                    repo_id=1001,
+                    repo_name="poc-repo",
+                    repo_full_name="owner/poc-repo",
+                    repo_url="https://github.com/owner/poc-repo",
+                    status="new",
+                    repo_updated_at=now,
+                    repo_pushed_at=now,
+                    source_file_path="2026/CVE-2026-3001.json",
+                    source_file_sha="sha-1001",
+                    last_synced_at=now,
+                ),
+                PushConfig(
+                    name="overview push",
+                    channel_type="dingding",
+                    webhook_url="https://example.com/webhook",
+                    enabled=True,
+                ),
+                GithubApiConfig(name="overview gh", api_token="ghp_testtoken", enabled=True),
+                TranslationApiConfig(app_id="overview-app", api_key="translate-key", enabled=False),
+                WatchRule(name="OpenSSL", rule_type="keyword", target="openssl", enabled=True),
+                PushLog(status="success", message="ok"),
+                PushLog(status="failed", message="failed"),
+                SyncJobLog(
+                    job_name="sync:nvd",
+                    status="success",
+                    message="NVD 同步完成",
+                    started_at=now,
+                    finished_at=now,
+                ),
+                SyncJobLog(
+                    job_name="sync:github_tools",
+                    status="running",
+                    message="红队工具刷新中",
+                    started_at=now,
+                ),
+            ]
+        )
+        db.session.commit()
+
+        response = self.client.get("/overview")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("监控覆盖", response.text)
+        self.assertIn("GitHub监控概况", response.text)
+        self.assertIn("同步状态", response.text)
+        self.assertIn("GitHub 红队工具", response.text)
+        self.assertIn("GitHub POC", response.text)
+        self.assertIn("已同步 1 个仓库", response.text)
+        self.assertIn("覆盖 CVE 1 个", response.text)
+        self.assertIn("红队工具刷新中", response.text)
+        self.assertNotIn("CISA KEV 索引 CVE", response.text)
+        self.assertNotIn("最近同步任务", response.text)
+
+    def test_overview_limits_database_round_trips(self) -> None:
+        self._setup_admin()
+        now = datetime.now(UTC).replace(tzinfo=None)
+
+        vulnerability = Vulnerability(
+            vuln_key="nvd:CVE-2026-3999",
+            cve_id="CVE-2026-3999",
+            title="perf vuln",
+            description="perf desc",
+            severity="high",
+            source="NVD",
+            status="new",
+            last_seen_at=now,
+        )
+        db.session.add(vulnerability)
+        db.session.flush()
+        db.session.add(VulnerabilityEvent(vulnerability_id=vulnerability.id, event_type="new", message="created"))
+        db.session.commit()
+
+        statements: list[str] = []
+
+        def before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+            if statement.lstrip().upper().startswith(("SELECT", "WITH")):
+                statements.append(statement)
+
+        event.listen(db.engine, "before_cursor_execute", before_cursor_execute)
+        try:
+            response = self.client.get("/overview")
+        finally:
+            event.remove(db.engine, "before_cursor_execute", before_cursor_execute)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertLessEqual(len(statements), 15)
 
     def test_docs_endpoints_are_disabled(self) -> None:
         for path in ("/docs", "/redoc", "/openapi.json"):

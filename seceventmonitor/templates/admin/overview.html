@@ -4,99 +4,128 @@
 <section class="page-header">
     <div>
         <h1>概览</h1>
+        <p>聚合漏洞态势、GitHub 监控覆盖和同步健康状态。</p>
     </div>
 </section>
 
-<section class="stats-grid">
-    <article class="stat-card">
-        <div class="stat-label">漏洞总数</div>
-        <div class="stat-value">{{ overview.vulnerability_count }}</div>
-    </article>
-    <article class="stat-card">
-        <div class="stat-label">近 24 小时新增</div>
-        <div class="stat-value">{{ overview.new_event_count_24h }}</div>
-    </article>
-    <article class="stat-card">
-        <div class="stat-label">近 24 小时更新</div>
-        <div class="stat-value">{{ overview.updated_event_count_24h }}</div>
-    </article>
-    <article class="stat-card">
-        <div class="stat-label">启用推送配置</div>
-        <div class="stat-value">{{ overview.enabled_push_config_count }}</div>
-    </article>
-    <article class="stat-card">
-        <div class="stat-label">启用翻译 API</div>
-        <div class="stat-value">{{ overview.enabled_translation_api_count }}</div>
-    </article>
-    <article class="stat-card">
-        <div class="stat-label">CISA KEV 索引 CVE</div>
-        <div class="stat-value">{{ overview.kev_catalog_count }}</div>
-    </article>
-    <article class="stat-card">
-        <div class="stat-label">运行中同步任务</div>
-        <div class="stat-value">{{ overview.active_sync_job_count }}</div>
-    </article>
+<section class="stats-grid stats-grid-4">
+    {% for item in overview.summary_metrics %}
+        <article class="stat-card">
+            <div class="stat-label">{{ item.label }}</div>
+            <div class="stat-value">{{ item.value }}</div>
+            <div class="stat-meta">{{ item.meta }}</div>
+        </article>
+    {% endfor %}
 </section>
 
-<section class="panel">
-    <div class="panel-header">
-        <h2>来源概览</h2>
-    </div>
-    <div class="table-wrap">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>来源</th>
-                    <th>漏洞数</th>
-                    <th>最近发现时间</th>
-                </tr>
-            </thead>
-            <tbody>
-            {% for item in overview.source_summaries %}
-                <tr>
-                    <td>{{ item.source }}</td>
-                    <td>{{ item.count }}</td>
-                    <td>{{ item.latest_seen_at or '-' }}</td>
-                </tr>
-            {% else %}
-                <tr>
-                    <td colspan="3" class="empty-cell">暂无来源数据</td>
-                </tr>
+<div class="layout-columns">
+    <section class="panel layout-main">
+        <div class="panel-header">
+            <h2>漏洞来源态势</h2>
+        </div>
+        <div class="badge-row">
+            {% for item in overview.severity_breakdown %}
+                <span class="badge badge-{{ item.value }}">{{ severity_labels.get(item.value, item.value) }} {{ item.count }}</span>
             {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</section>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>来源</th>
+                        <th>收录数</th>
+                        <th>高危/严重</th>
+                        <th>24h新增</th>
+                        <th>最近采集</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for item in overview.source_summaries %}
+                    <tr>
+                        <td>{{ item.source }}</td>
+                        <td>{{ item.count }}</td>
+                        <td>{{ item.critical_high_count }}</td>
+                        <td>{{ item.new_count_24h }}</td>
+                        <td>{{ item.latest_seen_at }}</td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="5" class="empty-cell">暂无来源数据</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
 
-<section class="panel">
-    <div class="panel-header">
-        <h2>最近同步任务</h2>
-    </div>
-    <div class="table-wrap">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>任务</th>
-                    <th>状态</th>
-                    <th>消息</th>
-                    <th>时间</th>
-                </tr>
-            </thead>
-            <tbody>
-            {% for item in overview.latest_sync_jobs %}
-                <tr>
-                    <td>{{ item.job_name }}</td>
-                    <td>{{ item.status }}</td>
-                    <td class="text-break">{{ item.message }}</td>
-                    <td>{{ item.created_at or '-' }}</td>
-                </tr>
-            {% else %}
-                <tr>
-                    <td colspan="4" class="empty-cell">暂无数据</td>
-                </tr>
+    <section class="panel layout-side">
+        <div class="panel-header">
+            <h2>监控覆盖</h2>
+        </div>
+        <div class="stack-list">
+            {% for item in overview.coverage_metrics %}
+                <article class="status-card">
+                    <div class="status-head">
+                        <strong>{{ item.label }}</strong>
+                        <span>{{ item.value }}</span>
+                    </div>
+                    <p>{{ item.description }}</p>
+                </article>
             {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</section>
+        </div>
+    </section>
+</div>
+
+<div class="layout-columns">
+    <section class="panel layout-main">
+        <div class="panel-header">
+            <h2>同步状态</h2>
+        </div>
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>来源</th>
+                        <th>当前状态</th>
+                        <th>最近成功</th>
+                        <th>最近更新</th>
+                        <th>最近消息</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for item in overview.sync_statuses %}
+                    <tr>
+                        <td>{{ item.source }}</td>
+                        <td><span class="badge {{ item.status_class }}">{{ item.status_label }}</span></td>
+                        <td>{{ item.last_success_at }}</td>
+                        <td>{{ item.updated_at }}</td>
+                        <td class="text-break">{{ item.message }}</td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="5" class="empty-cell">暂无同步状态</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel layout-side">
+        <div class="panel-header">
+            <h2>GitHub监控概况</h2>
+        </div>
+        <div class="stack-list">
+            {% for item in overview.github_metrics %}
+                <article class="status-card">
+                    <div class="status-head">
+                        <strong>{{ item.label }}</strong>
+                        <span>{{ item.value }}</span>
+                    </div>
+                    <p>{{ item.description }}</p>
+                </article>
+            {% endfor %}
+        </div>
+    </section>
+</div>
 {% endblock %}
