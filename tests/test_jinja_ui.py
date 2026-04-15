@@ -36,15 +36,7 @@ class JinjaUiSmokeTest(unittest.TestCase):
         os.environ.pop("SQLITE_DB_PATH", None)
         self._tmpdir.cleanup()
 
-    def test_setup_login_and_admin_pages(self) -> None:
-        response = self.client.get("/", follow_redirects=False)
-        self.assertEqual(response.status_code, 303)
-        self.assertEqual(response.headers["location"], "/setup")
-
-        response = self.client.get("/setup")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("初始化管理员账号", response.text)
-
+    def _setup_admin(self) -> None:
         response = self.client.post(
             "/setup",
             data={
@@ -56,6 +48,17 @@ class JinjaUiSmokeTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 303)
         self.assertEqual(response.headers["location"], "/overview")
+
+    def test_setup_login_and_admin_pages(self) -> None:
+        response = self.client.get("/", follow_redirects=False)
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/setup")
+
+        response = self.client.get("/setup")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("初始化管理员账号", response.text)
+
+        self._setup_admin()
 
         overview_response = self.client.get("/overview")
         self.assertEqual(overview_response.status_code, 200)
@@ -91,14 +94,7 @@ class JinjaUiSmokeTest(unittest.TestCase):
         self.assertEqual(relogin_response.headers["location"], "/overview")
 
     def test_monitor_default_page_size_is_10(self) -> None:
-        self.client.post(
-            "/setup",
-            data={
-                "username": "admin",
-                "password": "pass123",
-                "confirm_password": "pass123",
-            },
-        )
+        self._setup_admin()
 
         for index in range(12):
             db.session.add(
@@ -124,14 +120,7 @@ class JinjaUiSmokeTest(unittest.TestCase):
         self.assertEqual(tbody_match.group(1).count("<tr>"), 10)
 
     def test_push_config_crud_from_push_page(self) -> None:
-        self.client.post(
-            "/setup",
-            data={
-                "username": "admin",
-                "password": "pass123",
-                "confirm_password": "pass123",
-            },
-        )
+        self._setup_admin()
 
         response = self.client.get("/push")
         self.assertEqual(response.status_code, 200)
@@ -200,14 +189,7 @@ class JinjaUiSmokeTest(unittest.TestCase):
         self.assertIsNone(PushConfig.query.filter_by(id=config_id).first())
 
     def test_push_config_modal_can_send_test_message(self) -> None:
-        self.client.post(
-            "/setup",
-            data={
-                "username": "admin",
-                "password": "pass123",
-                "confirm_password": "pass123",
-            },
-        )
+        self._setup_admin()
 
         with patch("seceventmonitor.jinja_ui.send_test_message_with_payload") as send_mock:
             response = self.client.post(
@@ -230,14 +212,7 @@ class JinjaUiSmokeTest(unittest.TestCase):
         )
 
     def test_monitor_supports_advanced_affected_filters(self) -> None:
-        self.client.post(
-            "/setup",
-            data={
-                "username": "admin",
-                "password": "pass123",
-                "confirm_password": "pass123",
-            },
-        )
+        self._setup_admin()
 
         openssl_entries = parse_affected_versions_text("[应用] openssl: >= 3.0.0, < 3.0.8")
         nginx_entries = parse_affected_versions_text("[应用] nginx: 1.25.3")
@@ -279,14 +254,7 @@ class JinjaUiSmokeTest(unittest.TestCase):
         self.assertIn('name="affected_version" value="3.0.6"', response.text)
 
     def test_monitor_supports_multi_severity_filters(self) -> None:
-        self.client.post(
-            "/setup",
-            data={
-                "username": "admin",
-                "password": "pass123",
-                "confirm_password": "pass123",
-            },
-        )
+        self._setup_admin()
 
         for cve_id, severity in [
             ("CVE-2026-0201", "high"),
@@ -314,14 +282,7 @@ class JinjaUiSmokeTest(unittest.TestCase):
         self.assertRegex(response.text, r'value="medium"[^>]*checked|checked[^>]*value="medium"')
 
     def test_vulnerability_detail_shows_affected_versions_and_remediation(self) -> None:
-        self.client.post(
-            "/setup",
-            data={
-                "username": "admin",
-                "password": "pass123",
-                "confirm_password": "pass123",
-            },
-        )
+        self._setup_admin()
 
         vulnerability = Vulnerability(
             vuln_key="nvd:CVE-2026-9999",
@@ -343,6 +304,37 @@ class JinjaUiSmokeTest(unittest.TestCase):
         self.assertIn("openssl: &gt;= 3.0.0, &lt; 3.0.8", response.text)
         self.assertIn("解决建议", response.text)
         self.assertIn("Upgrade to 3.0.8 or later.", response.text)
+
+    def test_docs_endpoints_are_disabled(self) -> None:
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            response = self.client.get(path, follow_redirects=False)
+            self.assertEqual(response.status_code, 404)
+
+    def test_unauthenticated_protected_post_redirects_before_validation(self) -> None:
+        self._setup_admin()
+        logout_response = self.client.post("/logout", follow_redirects=False)
+        self.assertEqual(logout_response.status_code, 303)
+        self.assertEqual(logout_response.headers["location"], "/login")
+
+        response = self.client.post("/push/configs/test", follow_redirects=False)
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/login")
+
+    def test_unauthenticated_ajax_request_returns_json_401(self) -> None:
+        self._setup_admin()
+        self.client.post("/logout", follow_redirects=False)
+
+        response = self.client.post(
+            "/push/configs/test",
+            headers={
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["status"], "error")
+        self.assertIn("未登录", response.json()["message"])
 
 
 if __name__ == "__main__":

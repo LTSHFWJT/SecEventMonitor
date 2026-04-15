@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.templating import Jinja2Templates
 
 from seceventmonitor.config import Config
@@ -74,6 +75,30 @@ from seceventmonitor.utils.enum_labels import SEVERITY_LABELS, STATUS_LABELS, en
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+_PUBLIC_PATHS = {"/", "/setup", "/login", "/logout", "/api/health"}
+_PUBLIC_PREFIXES = ("/static",)
+_PROTECTED_PATH_PREFIXES = (
+    "/overview",
+    "/monitor",
+    "/redteam-github",
+    "/monitor-config",
+    "/api-config",
+    "/rules",
+    "/push",
+    "/translation-api",
+    "/settings",
+)
+_ADMIN_CACHE_MISSING = object()
+
+
+class AdminSessionGuardMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if _is_protected_path(request.url.path):
+            if not is_initialized():
+                return _build_unauthorized_response(request, initialized=False)
+            if _get_current_admin(request) is None:
+                return _build_unauthorized_response(request, initialized=True)
+        return await call_next(request)
 
 
 def register_jinja_ui(app: FastAPI) -> None:
@@ -1079,10 +1104,15 @@ def _render(
 
 
 def _get_current_admin(request: Request):
+    cached_admin = getattr(request.state, "_current_admin", _ADMIN_CACHE_MISSING)
+    if cached_admin is not _ADMIN_CACHE_MISSING:
+        return cached_admin
+
     admin_id = request.session.get(Config.ADMIN_SESSION_KEY)
     admin = get_admin_by_id(admin_id)
     if admin is None and admin_id is not None:
         request.session.pop(Config.ADMIN_SESSION_KEY, None)
+    request.state._current_admin = admin
     return admin
 
 
@@ -1090,6 +1120,22 @@ def _require_admin(request: Request):
     if not is_initialized():
         return None
     return _get_current_admin(request)
+
+
+def _build_unauthorized_response(request: Request, *, initialized: bool):
+    if _wants_json_response(request):
+        message = "未登录或登录已失效" if initialized else "系统尚未初始化"
+        return JSONResponse({"status": "error", "message": message}, status_code=401)
+    target = "/login" if initialized else "/setup"
+    return RedirectResponse(url=target, status_code=303)
+
+
+def _is_protected_path(path: str) -> bool:
+    if path in _PUBLIC_PATHS:
+        return False
+    if any(path == prefix or path.startswith(f"{prefix}/") for prefix in _PUBLIC_PREFIXES):
+        return False
+    return any(path == prefix or path.startswith(f"{prefix}/") for prefix in _PROTECTED_PATH_PREFIXES)
 
 
 def _set_flash(request: Request, message: str, level: str) -> None:

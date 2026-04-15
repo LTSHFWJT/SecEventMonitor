@@ -6,7 +6,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from seceventmonitor.config import Config
 from seceventmonitor.extensions import db
-from seceventmonitor.jinja_ui import register_jinja_ui
+from seceventmonitor.jinja_ui import AdminSessionGuardMiddleware, register_jinja_ui
 from seceventmonitor.services.bootstrap import initialize_database, seed_default_records
 from seceventmonitor.services.scheduler_service import start_scheduler, stop_scheduler
 
@@ -24,7 +24,13 @@ def create_app() -> FastAPI:
     seed_default_records()
     db.remove()
 
-    app = FastAPI(title=Config.APP_NAME)
+    app = FastAPI(
+        title=Config.APP_NAME,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+    app.add_middleware(AdminSessionGuardMiddleware)
     app.add_middleware(
         SessionMiddleware,
         secret_key=Config.SECRET_KEY,
