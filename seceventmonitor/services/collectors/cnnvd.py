@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import re
 import time
 from datetime import UTC
+
+from requests import RequestException
 
 from seceventmonitor.models import Vulnerability
 from seceventmonitor.services.collectors.base import BaseCollector
@@ -26,6 +29,7 @@ from seceventmonitor.utils.affected_versions import (
 
 
 _URL_PATTERN = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+logger = logging.getLogger(__name__)
 
 
 class CnnvdCollector(BaseCollector):
@@ -34,6 +38,7 @@ class CnnvdCollector(BaseCollector):
     list_url = "https://www.cnnvd.org.cn/web/homePage/cnnvdVulList"
     detail_url = "https://www.cnnvd.org.cn/web/cnnvdVul/getCnnnvdDetailOnDatasource"
     page_size = 50
+    yield_batch_size = 10
     max_pages = 500
     request_interval_seconds = 2.0
 
@@ -84,6 +89,7 @@ class CnnvdCollector(BaseCollector):
         threshold = None if full_history else resolve_since(since, fallback_days=30)
         page_index = 1
         fetched_count = 0
+        batch_size = max(int(self.yield_batch_size or self.page_size or 1), 1)
 
         while self.max_pages <= 0 or page_index <= self.max_pages:
             payload = self._fetch_list_payload(page_index)
@@ -117,7 +123,24 @@ class CnnvdCollector(BaseCollector):
                     should_stop = True
                     break
 
-                detail = self._fetch_detail(row)
+                try:
+                    detail = self._fetch_detail(row)
+                except RequestException as exc:
+                    if not self._should_skip_detail_error(exc):
+                        raise
+                    logger.warning(
+                        "Use list-only CNNVD item due to detail fetch error: cnnvd_code=%s error=%s",
+                        clean_inline_text(row.get("cnnvdCode")),
+                        exc,
+                    )
+                    detail = {}
+                except ValueError as exc:
+                    logger.warning(
+                        "Use list-only CNNVD item due to detail payload parse error: cnnvd_code=%s error=%s",
+                        clean_inline_text(row.get("cnnvdCode")),
+                        exc,
+                    )
+                    detail = {}
                 batch_records.append(
                     self._normalize_item(
                         row,
@@ -127,6 +150,10 @@ class CnnvdCollector(BaseCollector):
                     )
                 )
                 fetched_count += 1
+
+                if len(batch_records) >= batch_size:
+                    yield batch_records
+                    batch_records = []
 
                 if limit is not None and fetched_count >= limit:
                     if batch_records:
@@ -203,6 +230,12 @@ class CnnvdCollector(BaseCollector):
         remaining = self.request_interval_seconds - elapsed
         if remaining > 0:
             time.sleep(remaining)
+
+    @staticmethod
+    def _should_skip_detail_error(exc: RequestException) -> bool:
+        response = getattr(exc, "response", None)
+        status_code = getattr(response, "status_code", None)
+        return bool(status_code in {403, 429} or (status_code and int(status_code) >= 500))
 
     def _load_existing_vulnerabilities(self, rows: list[dict]) -> dict[str, Vulnerability]:
         vuln_keys = [self._build_vuln_key(item) for item in rows if self._build_vuln_key(item)]

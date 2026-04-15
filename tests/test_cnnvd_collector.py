@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime
 
+from requests import HTTPError, Response
+
 from seceventmonitor.services.collectors.cnnvd import CnnvdCollector
 
 
@@ -99,6 +101,89 @@ class CnnvdCollectorNormalizationTest(unittest.TestCase):
         records = collector.fetch(full_history=True, stop_on_existing=True)
 
         self.assertEqual(records, [])
+
+    def test_iter_batches_yields_smaller_chunks_for_incremental_commits(self) -> None:
+        class ChunkingCollector(CnnvdCollector):
+            def __init__(self):
+                super().__init__(settings={}, session=object())
+                self.page_size = 25
+                self.yield_batch_size = 10
+                self.max_pages = 1
+
+            def _fetch_list_payload(self, page_index: int) -> dict:
+                return {
+                    "data": {
+                        "total": 25,
+                        "records": [
+                            {
+                                "id": f"item-{index}",
+                                "cnnvdCode": f"CNNVD-202604-{index:04d}",
+                                "publishTime": "2026-04-09",
+                                "updateTime": "2026-04-10",
+                                "vulType": "0",
+                            }
+                            for index in range(1, 26)
+                        ],
+                    }
+                }
+
+            def _fetch_detail(self, row: dict) -> dict:
+                return {"vulName": row["cnnvdCode"]}
+
+            def _load_existing_vulnerabilities(self, rows: list[dict]):
+                return {}
+
+            def _normalize_item(self, row: dict, detail: dict, *, published_at=None, last_seen_at=None) -> dict:
+                return {"vuln_key": self._build_vuln_key(row)}
+
+        collector = ChunkingCollector()
+
+        batch_sizes = [len(batch) for batch in collector.iter_batches(full_history=True, stop_on_existing=False)]
+
+        self.assertEqual(batch_sizes, [10, 10, 5])
+
+    def test_falls_back_to_list_item_when_detail_request_is_rate_limited(self) -> None:
+        class RateLimitedCollector(CnnvdCollector):
+            def __init__(self):
+                super().__init__(settings={}, session=object())
+                self.max_pages = 1
+
+            def _fetch_list_payload(self, page_index: int) -> dict:
+                return {
+                    "data": {
+                        "total": 1,
+                        "records": [
+                            {
+                                "id": "item-1",
+                                "vulName": "Example from list",
+                                "cnnvdCode": "CNNVD-202604-9999",
+                                "cveCode": "CVE-2026-9999",
+                                "hazardLevel": 2,
+                                "publishTime": "2026-04-09",
+                                "updateTime": "2026-04-10",
+                                "vulType": "0",
+                            }
+                        ],
+                    }
+                }
+
+            def _fetch_detail(self, row: dict) -> dict:
+                response = Response()
+                response.status_code = 429
+                response.url = "https://www.cnnvd.org.cn/web/cnnvdVul/getCnnnvdDetailOnDatasource"
+                raise HTTPError("429 Too Many Requests", response=response)
+
+            def _load_existing_vulnerabilities(self, rows: list[dict]):
+                return {}
+
+        collector = RateLimitedCollector()
+        records = collector.fetch(full_history=True, stop_on_existing=False)
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["vuln_key"], "cnnvd:CNNVD-202604-9999")
+        self.assertEqual(records[0]["title"], "Example from list")
+        self.assertEqual(records[0]["description"], "Example from list")
+        self.assertEqual(records[0]["source_payload"]["detail"], {})
 
 
 if __name__ == "__main__":

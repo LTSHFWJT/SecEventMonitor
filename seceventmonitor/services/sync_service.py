@@ -198,15 +198,17 @@ def _run_cnnvd_source(job_id):
     try:
         collector = COLLECTOR_MAP[source_name]()
         last_success_time = get_last_success_time(job_name)
+        use_code_boundary = last_success_time is not None
         inserted = 0
         updated = 0
         record_count = 0
         notification_targets = []
 
         for batch in collector.iter_batches(
-            since=last_success_time,
+            since=None if use_code_boundary else last_success_time,
+            full_history=use_code_boundary,
             progress_callback=_build_progress_callback(job.id, source_name),
-            stop_on_existing=last_success_time is not None,
+            stop_on_existing=use_code_boundary,
         ):
             batch_inserted, batch_updated, batch_targets = upsert_vulnerabilities(batch)
             inserted += batch_inserted
