@@ -109,6 +109,36 @@ def get_vulnerability_sync_sources():
     return list(COLLECTOR_MAP.keys())
 
 
+def clear_sync_jobs(*, active_only=True, sources=None):
+    job_names = _normalize_sync_job_name_filters(sources)
+    query = SyncJobLog.query.filter(SyncJobLog.job_name.like("sync:%"))
+    if active_only:
+        query = query.filter(SyncJobLog.status.in_(ACTIVE_JOB_STATUSES))
+    if job_names:
+        query = query.filter(SyncJobLog.job_name.in_(job_names))
+
+    rows = query.with_entities(SyncJobLog.id, SyncJobLog.job_name, SyncJobLog.status).all()
+    if not rows:
+        return {
+            "deleted": 0,
+            "active_only": active_only,
+            "job_names": [],
+            "statuses": [],
+        }
+
+    deleted_ids = [row.id for row in rows]
+    deleted_job_names = sorted({row.job_name for row in rows})
+    deleted_statuses = sorted({row.status for row in rows})
+    SyncJobLog.query.filter(SyncJobLog.id.in_(deleted_ids)).delete(synchronize_session=False)
+    db.session.commit()
+    return {
+        "deleted": len(deleted_ids),
+        "active_only": active_only,
+        "job_names": deleted_job_names,
+        "statuses": deleted_statuses,
+    }
+
+
 def _run_single_source(source_name, collector_cls, job_id):
     job_name = f"sync:{source_name}"
     started_at = datetime.now(UTC)
@@ -682,6 +712,28 @@ def _normalize_sources(source):
     if unsupported:
         raise ValueError(f"不支持的同步源: {', '.join(unsupported)}")
     return deduplicated_sources
+
+
+def _normalize_sync_job_name_filters(sources):
+    if sources is None:
+        return []
+    if isinstance(sources, str):
+        source_items = [sources]
+    else:
+        source_items = list(sources)
+
+    normalized = []
+    seen = set()
+    for item in source_items:
+        value = str(item).strip()
+        if not value:
+            continue
+        job_name = value if value.startswith("sync:") else f"sync:{value}"
+        if job_name in seen:
+            continue
+        seen.add(job_name)
+        normalized.append(job_name)
+    return normalized
 
 
 def _create_job(source_name, status, message):

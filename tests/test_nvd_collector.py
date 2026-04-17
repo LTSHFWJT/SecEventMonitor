@@ -1,6 +1,37 @@
+from datetime import UTC, datetime
 import unittest
+from unittest.mock import patch
+
+import requests
 
 from seceventmonitor.services.collectors.nvd import NvdCollector
+
+
+class _FakeResponse:
+    def __init__(self, payload, *, status_code=200, headers=None):
+        self._payload = payload
+        self.status_code = status_code
+        self.headers = headers or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code} error", response=self)
+
+    def json(self):
+        return self._payload
+
+
+class _SequenceSession:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+
+    def get(self, url, params=None, timeout=None):
+        self.calls.append({"url": url, "params": params or {}, "timeout": timeout})
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 class NvdCollectorMetricTest(unittest.TestCase):
@@ -154,6 +185,56 @@ class NvdCollectorMetricTest(unittest.TestCase):
         self.assertIn("Upgrade to version 3.0.8 or later.", item["remediation"])
         self.assertIn("[OpenSSL] Apply the upstream fix package.", item["remediation"])
         self.assertIn("CISA 要求措施", item["remediation"])
+
+
+class NvdCollectorRetryTest(unittest.TestCase):
+    def test_fetch_retries_after_read_timeout(self) -> None:
+        session = _SequenceSession(
+            [
+                requests.ReadTimeout("read timed out"),
+                _FakeResponse(
+                    {
+                        "vulnerabilities": [
+                            {
+                                "cve": {
+                                    "id": "CVE-2026-0101",
+                                    "descriptions": [{"lang": "en", "value": "Retry succeeded"}],
+                                    "metrics": {},
+                                }
+                            }
+                        ],
+                        "totalResults": 1,
+                    }
+                ),
+            ]
+        )
+        collector = NvdCollector(settings={}, session=session)
+        collector.request_interval_seconds = 0
+
+        with patch("seceventmonitor.services.collectors.nvd.time.sleep") as sleep_mock:
+            items = collector.fetch(since=datetime(2026, 4, 8, tzinfo=UTC), limit=1)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["cve_id"], "CVE-2026-0101")
+        self.assertEqual(len(session.calls), 2)
+        sleep_mock.assert_called_once_with(5.0)
+
+    def test_fetch_retries_after_retry_after_rate_limit(self) -> None:
+        session = _SequenceSession(
+            [
+                _FakeResponse({"message": "rate limited"}, status_code=429, headers={"Retry-After": "1.5"}),
+                _FakeResponse({"vulnerabilities": [], "totalResults": 0}),
+            ]
+        )
+        collector = NvdCollector(settings={}, session=session)
+        collector.request_interval_seconds = 0
+
+        with patch("seceventmonitor.services.collectors.nvd.time.sleep") as sleep_mock:
+            items = collector.fetch(since=datetime(2026, 4, 8, tzinfo=UTC))
+
+        self.assertEqual(items, [])
+        self.assertEqual(len(session.calls), 2)
+        sleep_mock.assert_called_once_with(1.5)
 
 
 if __name__ == "__main__":

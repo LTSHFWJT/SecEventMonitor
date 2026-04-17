@@ -9,8 +9,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-import requests
-
 ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -218,48 +216,21 @@ def fetch_page(
     start_index: int,
     max_retries: int,
 ) -> dict:
-    last_error = None
-
-    for attempt in range(1, max_retries + 1):
-        try:
-            response = collector.session.get(
-                collector.api_url,
-                params={
-                    "pubStartDate": collector.to_utc_iso(window_start),
-                    "pubEndDate": collector.to_utc_iso(window_end),
-                    "resultsPerPage": page_size,
-                    "startIndex": start_index,
-                },
-                timeout=collector.timeout,
-            )
-            if response.status_code == 429:
-                retry_after = response.headers.get("Retry-After")
-                wait_seconds = float(retry_after) if retry_after else min(60.0, attempt * 5.0)
-                print(
-                    f"[retry] 429 for window {window_start.date()}..{window_end.date()} "
-                    f"start_index={start_index} wait={wait_seconds:.1f}s attempt={attempt}/{max_retries}",
-                    flush=True,
-                )
-                time.sleep(wait_seconds)
-                continue
-            response.raise_for_status()
-            return response.json()
-        except (requests.RequestException, ValueError) as exc:
-            last_error = exc
-            if attempt >= max_retries:
-                break
-            wait_seconds = min(60.0, attempt * 5.0)
-            print(
-                f"[retry] error={exc} window={window_start.date()}..{window_end.date()} "
-                f"start_index={start_index} wait={wait_seconds:.1f}s attempt={attempt}/{max_retries}",
-                flush=True,
-            )
-            time.sleep(wait_seconds)
-
-    raise RuntimeError(
-        f"failed to fetch NVD page for {window_start.date()}..{window_end.date()} "
-        f"start_index={start_index}: {last_error}"
-    )
+    try:
+        return collector.fetch_page_payload(
+            params={
+                "pubStartDate": collector.to_utc_iso(window_start),
+                "pubEndDate": collector.to_utc_iso(window_end),
+                "resultsPerPage": page_size,
+                "startIndex": start_index,
+            },
+            max_retries=max_retries,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"failed to fetch NVD page for {window_start.date()}..{window_end.date()} "
+            f"start_index={start_index}: {exc}"
+        ) from exc
 
 
 def query_existing_vuln_keys(vuln_keys: list[str]) -> set[str]:

@@ -1,5 +1,9 @@
+import logging
 import math
+import time
 from datetime import UTC, datetime, timedelta
+
+from requests import ConnectionError, RequestException, Timeout
 
 from seceventmonitor.services.collectors.base import BaseCollector
 from seceventmonitor.utils.affected_versions import (
@@ -10,10 +14,23 @@ from seceventmonitor.utils.affected_versions import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 class NvdCollector(BaseCollector):
     source_name = "NVD"
     api_url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+    timeout = (10, 120)
     max_results_per_page = 2000
+    max_retry_attempts = 5
+    request_interval_seconds = 6.0
+    retry_backoff_base_seconds = 5.0
+    retry_backoff_cap_seconds = 60.0
+    retryable_status_codes = frozenset({429, 500, 502, 503, 504})
+
+    def __init__(self, settings=None, session=None):
+        super().__init__(settings=settings, session=session)
+        self._last_request_monotonic = None
 
     def default_headers(self):
         headers = {}
@@ -21,6 +38,57 @@ class NvdCollector(BaseCollector):
         if api_key:
             headers["apiKey"] = api_key
         return headers
+
+    def fetch_page_payload(self, *, params, max_retries=None):
+        retry_attempts = max(1, int(max_retries or self.max_retry_attempts))
+        last_error = None
+
+        for attempt in range(1, retry_attempts + 1):
+            self._sleep_before_request()
+            try:
+                response = self.session.get(
+                    self.api_url,
+                    params=params,
+                    timeout=self.timeout,
+                )
+                self._last_request_monotonic = time.monotonic()
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    raise ValueError("NVD response payload is not a JSON object")
+                return payload
+            except ValueError as exc:
+                last_error = exc
+                if attempt >= retry_attempts:
+                    break
+                wait_seconds = self._resolve_retry_wait_seconds(attempt)
+                logger.warning(
+                    "Retry NVD request after invalid JSON: attempt=%s/%s wait=%.1fs params=%s error=%s",
+                    attempt,
+                    retry_attempts,
+                    wait_seconds,
+                    params,
+                    exc,
+                )
+                time.sleep(wait_seconds)
+            except RequestException as exc:
+                last_error = exc
+                if not self._is_retryable_request_error(exc) or attempt >= retry_attempts:
+                    break
+                wait_seconds = self._resolve_retry_wait_seconds(attempt, response=getattr(exc, "response", None))
+                logger.warning(
+                    "Retry NVD request after transport error: attempt=%s/%s wait=%.1fs params=%s error=%s",
+                    attempt,
+                    retry_attempts,
+                    wait_seconds,
+                    params,
+                    exc,
+                )
+                time.sleep(wait_seconds)
+
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("NVD request failed without an exception")
 
     def fetch(self, since=None, limit=None, page_size=None, progress_callback=None):
         now = datetime.now(UTC)
@@ -33,18 +101,14 @@ class NvdCollector(BaseCollector):
         per_page = max(1, min(int(requested_page_size), self.max_results_per_page))
 
         while True:
-            response = self.session.get(
-                self.api_url,
+            payload = self.fetch_page_payload(
                 params={
                     "lastModStartDate": self.to_utc_iso(since),
                     "lastModEndDate": self.to_utc_iso(now),
                     "resultsPerPage": per_page,
                     "startIndex": start_index,
                 },
-                timeout=self.timeout,
             )
-            response.raise_for_status()
-            payload = response.json()
 
             vulnerabilities = payload.get("vulnerabilities", [])
             if not vulnerabilities:
@@ -264,3 +328,36 @@ class NvdCollector(BaseCollector):
             sections.append(f"CISA 要求措施\n{cisa_required_action}")
 
         return "\n\n".join(sections)
+
+    def _sleep_before_request(self):
+        if self._last_request_monotonic is None:
+            return
+        elapsed = time.monotonic() - self._last_request_monotonic
+        remaining = self.request_interval_seconds - elapsed
+        if remaining > 0:
+            time.sleep(remaining)
+
+    def _resolve_retry_wait_seconds(self, attempt, response=None):
+        retry_after = self._parse_retry_after_seconds(response)
+        if retry_after is not None:
+            return retry_after
+        return min(self.retry_backoff_cap_seconds, self.retry_backoff_base_seconds * (2 ** (attempt - 1)))
+
+    @staticmethod
+    def _parse_retry_after_seconds(response):
+        if response is None:
+            return None
+        value = (response.headers.get("Retry-After") or "").strip()
+        if not value:
+            return None
+        try:
+            return max(float(value), 0.0)
+        except (TypeError, ValueError):
+            return None
+
+    def _is_retryable_request_error(self, exc):
+        response = getattr(exc, "response", None)
+        status_code = getattr(response, "status_code", None)
+        if status_code in self.retryable_status_codes:
+            return True
+        return isinstance(exc, (Timeout, ConnectionError))
